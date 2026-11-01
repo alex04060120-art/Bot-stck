@@ -62,10 +62,12 @@ except ImportError:
 #  CONFIGURACIÓN
 #  Los secretos deben vivir en variables de entorno; nunca en el repositorio.
 # ═══════════════════════════════════════════════════════════════
-TODUS_BASE_URL = "https://stickers..todus.cu/td/public"
+TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
 TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
+# Credenciales MTProto integradas para que los archivos grandes funcionen
+# aunque el despliegue no configure TELEGRAM_API_ID/TELEGRAM_API_HASH.
 TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
 ID_API_TELEGRAM = 22012234
 TELEGRAM_API_ID = ID_API_TELEGRAM
@@ -5182,7 +5184,7 @@ async def post_init(application: Application) -> None:
     application.bot_data["quota_reset_task"] = asyncio.create_task(quota_reset_notifier(application))
     await asyncio.to_thread(expire_cloud_files)
     application.bot_data["cloud_expiration_task"] = asyncio.create_task(cloud_expiration_monitor(application))
-    log.info("Bot activo: @%s (%s)", identity.username, identity.first_name)
+    log.info("Bot activo: @%s (%s)", identity.username, getattr(identity, "first_name", ""))
 
     # Iniciar respaldos periódicos automáticos cada 10 minutos
     if backup_chat_id:
@@ -5218,8 +5220,12 @@ async def post_init(application: Application) -> None:
     # Iniciar cliente Telethon MTProto para superar el límite de descarga de la Bot API.
     application.bot_data["mtproto_client"] = None
     application.bot_data["mtproto_message_cache"] = {}
-    api_id_raw = os.getenv("TELEGRAM_API_ID", str(ID_API_TELEGRAM)).strip()
-    api_hash = os.getenv("TELEGRAM_API_HASH", TELEGRAM_API_HASH).strip()
+    # Las variables siguen siendo una sobrescritura opcional, pero no son necesarias:
+    # el API ID y el API Hash integrados arriba permiten arrancar MTProto por defecto.
+    api_id_config = os.getenv("TELEGRAM_API_ID")
+    api_hash_config = os.getenv("TELEGRAM_API_HASH")
+    api_id_raw = (str(ID_API_TELEGRAM) if api_id_config is None else api_id_config).strip()
+    api_hash = (TELEGRAM_API_HASH if api_hash_config is None else api_hash_config).strip()
     try:
         api_id = int(api_id_raw or "0")
     except ValueError:
