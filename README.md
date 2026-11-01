@@ -1,6 +1,6 @@
 # JK Bot — Telegram a ToDus S3
 
-Bot privado de Telegram que recibe documentos, vídeos, audios, fotos y enlaces HTTP/HTTPS directos o páginas públicas de vídeo compatibles con yt-dlp; los sube a ToDus S3 y devuelve un enlace público de descarga. La subida usa `PUT` directo a `stickers.todus.cu/td/public/<ID>/<archivo>`; no requiere cuenta ToDus, número de teléfono ni contraseña ToDus. Cada objeto queda bajo `users/tg_<ID>/telegram/...` y conserva una extensión segura (por ejemplo, `.apk` o `.mp4`).
+Bot privado de Telegram que recibe documentos, vídeos, audios, fotos, animaciones, notas de vídeo, mensajes de voz y stickers estáticos/animados/de vídeo, además de enlaces HTTP/HTTPS directos o páginas públicas de vídeo compatibles con yt-dlp; los sube a ToDus S3 y devuelve un enlace público de descarga. La subida usa `PUT` directo a `stickers.todus.cu/td/public/<ID>/<archivo>`; no requiere cuenta ToDus, número de teléfono ni contraseña ToDus. Cada objeto conserva una extensión segura (por ejemplo, `.apk`, `.mp4`, `.webp`, `.tgs` o `.webm`).
 
 ## Estilo y uso
 
@@ -35,7 +35,7 @@ Bot privado de Telegram que recibe documentos, vídeos, audios, fotos y enlaces 
 - `TELEGRAM_BOT_TOKEN`: token del bot creado con `@BotFather`. Es obligatorio.
 - `TELEGRAM_BACKUP_CHAT_ID`: ID numérico o `@usuario` del canal o grupo de Telegram donde se publicará y fijará el respaldo cifrado. También se aceptan `BACKUP_CHAT_ID` o, como fallback, `TELEGRAM_CHANNEL_ID`. El bot debe poder enviar documentos allí; para fijar y reemplazar el mismo mensaje necesita permisos de fijado/edición.
 - `TELEGRAM_BACKUP_INTERVAL_SECONDS`: intervalo del respaldo automático; por defecto son 300 segundos y el mínimo es 30.
-- `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`: opcionales; permiten descargar reenvíos de Telegram de más de aproximadamente 20 MiB. No sustituyen `TELEGRAM_BOT_TOKEN`.
+- `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`: necesarios para descargar mediante MTProto archivos o reenvíos de Telegram de más de aproximadamente 20 MiB. Configúralos como secretos privados; no los pongas en `bot.py`, `.env` versionado ni GitHub. No sustituyen `TELEGRAM_BOT_TOKEN`.
 - **No se configuran `TODUS_PHONE`, `TODUS_PASSWORD` ni credenciales de ToDus.**
 - `REQUIRED_CHANNEL` y `REQUIRED_GROUP` indican los chats para comprobar membresía (por defecto `@gg_no_root` y `@videogameplay0406`). `CHANNEL_JOIN_URL` y `GROUP_JOIN_URL` indican los enlaces mostrados para unirse. El bot debe tener acceso suficiente para `getChatMember`; Telegram no garantiza la consulta de otros usuarios para bots no administradores.
 - `YTDLP_COOKIES_FILE` es opcional: ruta a un archivo Netscape de cookies autorizado para publicaciones de Facebook/Instagram que no entregan el vídeo sin sesión. Mantén el archivo fuera de GitHub, no lo envíes al bot y usa solo cookies de una cuenta que tengas permiso de utilizar.

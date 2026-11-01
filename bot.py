@@ -2450,6 +2450,14 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
         media, fallback = message.voice, "voice.ogg"
     elif message.video_note:
         media, fallback = message.video_note, "video_note.mp4"
+    elif getattr(message, "sticker", None):
+        media = message.sticker
+        if getattr(media, "is_video", False):
+            filename = "sticker.webm"
+        elif getattr(media, "is_animated", False):
+            filename = "sticker.tgs"
+        else:
+            filename = "sticker.webp"
     elif message.photo:
         media, fallback = message.photo[-1], "photo.jpg"
     if media is None:
@@ -5088,7 +5096,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 log.warning(f"Error procesando zip manual: {e}")
 
     size_hint = None
-    for media_name in ("document", "video", "animation", "audio", "voice", "video_note"):
+    for media_name in ("document", "video", "animation", "audio", "voice", "video_note", "sticker"):
         media = getattr(message, media_name, None)
         if media:
             size_hint = getattr(media, "file_size", None)
@@ -5302,6 +5310,7 @@ def main() -> None:
     media_filters = (
         filters.Document.ALL | filters.VIDEO | filters.AUDIO
         | filters.PHOTO | filters.ANIMATION | filters.VIDEO_NOTE | filters.VOICE
+        | filters.Sticker.ALL
     )
     application.add_handler(MessageHandler(media_filters, handle_media))
     threading.Thread(target=start_api_server, daemon=True).start()
