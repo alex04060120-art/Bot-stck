@@ -5220,16 +5220,10 @@ async def post_init(application: Application) -> None:
     # Iniciar cliente Telethon MTProto para superar el límite de descarga de la Bot API.
     application.bot_data["mtproto_client"] = None
     application.bot_data["mtproto_message_cache"] = {}
-    # Las variables siguen siendo una sobrescritura opcional, pero no son necesarias:
-    # el API ID y el API Hash integrados arriba permiten arrancar MTProto por defecto.
-    api_id_config = os.getenv("TELEGRAM_API_ID")
-    api_hash_config = os.getenv("TELEGRAM_API_HASH")
-    api_id_raw = (str(ID_API_TELEGRAM) if api_id_config is None else api_id_config).strip()
-    api_hash = (TELEGRAM_API_HASH if api_hash_config is None else api_hash_config).strip()
-    try:
-        api_id = int(api_id_raw or "0")
-    except ValueError:
-        api_id = 0
+    # MTProto usa siempre las credenciales integradas en este archivo.
+    # No depende de TELEGRAM_API_ID ni TELEGRAM_API_HASH del entorno.
+    api_id = ID_API_TELEGRAM
+    api_hash = TELEGRAM_API_HASH
     if not api_id or not api_hash:
         log.warning(
             "MTProto desactivado: configura TELEGRAM_API_ID y TELEGRAM_API_HASH "
