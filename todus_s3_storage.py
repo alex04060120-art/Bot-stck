@@ -121,14 +121,8 @@ def build_object_key(
     if isinstance(telegram_user_id, bool) or int(telegram_user_id) <= 0:
         raise ValueError("El ID de Telegram debe ser un entero positivo.")
     actual_name = Path(filename or "download.bin").name
-    clean_name = "".join(
-        c for c in actual_name
-        if ord(c) >= 32 and c not in {"/", "\\", '"', ";"}
-    ).strip() or "download.bin"
-    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
-    unique_dir = f"{stamp}-{uuid.uuid4().hex[:6]}"
-    unique_name = f"telegram_{uuid.uuid4().hex[:12]}_{clean_name}"
-    return f"users/tg_{int(telegram_user_id)}/telegram/{unique_dir}/{unique_name}"
+    clean_name = "".join(c for c in actual_name if ord(c) >= 32).strip() or "download.bin"
+    return f"{int(telegram_user_id)}/{clean_name}"
 
 
 def _content_disposition(filename: str) -> str:
@@ -233,60 +227,44 @@ def upload_to_todus_s3(
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
 
-    target_urls = [url]
-    if urlsplit(url).hostname == "stickers.todus.cu":
-        target_urls.append(url.replace("stickers.todus.cu", "152.207.206.86"))
-
     with requests.Session() as session:
         for attempt in range(MAX_RETRIES):
             if is_cancelled and is_cancelled():
                 raise ToDusS3UploadCancelled("Subida cancelada.")
-            for target_url in target_urls:
-                request_headers = headers
-                verify = True
-                if "152.207.206.86" in target_url:
-                    request_headers = {**headers, "Host": "stickers.todus.cu"}
-                    verify = False
-                try:
-                    with actual_path.open("rb") as file_obj:
-                        body = _ProgressStream(
-                            file_obj,
-                            size,
-                            on_progress=on_progress,
-                            is_cancelled=is_cancelled,
-                            deadline=deadline,
-                        )
-                        request_kwargs = {
-                            "data": body,
-                            "headers": request_headers,
-                            "timeout": (30, timeout),
-                        }
-                        if not verify:
-                            request_kwargs["verify"] = False
-                        response = session.put(target_url, **request_kwargs)
-                except ToDusS3UploadCancelled:
-                    raise
-                except requests.RequestException as exc:
-                    last_error = exc
+            try:
+                with actual_path.open("rb") as file_obj:
+                    body = _ProgressStream(
+                        file_obj,
+                        size,
+                        on_progress=on_progress,
+                        is_cancelled=is_cancelled,
+                        deadline=deadline,
+                    )
+                    response = session.put(
+                        url,
+                        data=body,
+                        headers=headers,
+                        timeout=(30, timeout),
+                    )
+            except ToDusS3UploadCancelled:
+                raise
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt + 1 < MAX_RETRIES and time.monotonic() < deadline:
+                    time.sleep(min(RETRY_BACKOFF_SECONDS**attempt, 8))
                     continue
+                raise ToDusS3UploadError(
+                    f"No se pudo conectar con ToDus S3 ({type(exc).__name__})."
+                ) from exc
 
-                if 200 <= response.status_code < 300:
-                    return url, size
-                last_error = ToDusS3UploadError(
-                    f"ToDus S3 respondió HTTP {response.status_code}."
-                )
-                if response.status_code < 500:
-                    break
-
-            if attempt + 1 < MAX_RETRIES and time.monotonic() < deadline:
+            if response.status_code == 200:
+                return url, size
+            if response.status_code >= 500 and attempt + 1 < MAX_RETRIES:
                 time.sleep(min(RETRY_BACKOFF_SECONDS**attempt, 8))
                 continue
-            if isinstance(last_error, ToDusS3UploadError):
-                raise last_error
-            if last_error:
-                raise ToDusS3UploadError(
-                    f"No se pudo conectar con ToDus S3 ({type(last_error).__name__})."
-                ) from last_error
+            raise ToDusS3UploadError(
+                f"ToDus S3 respondió HTTP {response.status_code}."
+            )
 
     if last_error:
         raise ToDusS3UploadError(

@@ -1,7 +1,7 @@
 """
 =============================================================================
              JK DOWN BOT - TODUS & TELEGRAM HIGH-SPEED BRIDGE
-  Configuración segura por entorno, compatible con Railway y Docker
+  Configuración 100% integrada internamente sin depender de variables Railway
   Sistema de Respaldo y Restauración Automático para Migración de Servidor
 =============================================================================
 """
@@ -59,26 +59,20 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN DEL DESPLIEGUE
-#  Los secretos se leen desde el entorno y nunca deben quedar en Git.
+#  CONFIGURACIÓN EMBEBIDA (VALORES INTEGRADOS DIRECTAMENTE)
+#  No necesitas configurar ninguna variable en Railway / VPS / Hosting.
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TOKEN_BOT_DE_TELEGRAM = "8880272278:AAFspZahBMgFKLCtjLeLE73-p2btyFyESGE"
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
-TELEGRAM_BACKUP_CHAT_ID = os.getenv("TELEGRAM_BACKUP_CHAT_ID", "").strip()
-try:
-    ID_API_TELEGRAM = int(os.getenv("TELEGRAM_API_ID", "0") or 0)
-except ValueError:
-    ID_API_TELEGRAM = 0
+TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
+ID_API_TELEGRAM = 22012234
 TELEGRAM_API_ID = ID_API_TELEGRAM
-TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
-REQUIRED_GROUP = os.getenv("REQUIRED_GROUP", "@videogameplay0406")
-REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@gg_no_root")
-try:
-    OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0") or 0)
-except ValueError:
-    OWNER_TELEGRAM_ID = 0
+TELEGRAM_API_HASH = "cb5cbb3ab5b6bcf0bfc3df608eef869f"
+REQUIRED_GROUP = "@videogameplay0406"
+REQUIRED_CHANNEL = "@gg_no_root"
+OWNER_TELEGRAM_ID = 7935796405
 MAX_TRANSFER_HOURS = 24
 MAX_FILE_MB_PREMIUM = 0       # 0 = Ilimitado para Premium
 MAX_FILE_MB_FREE = 2048       # 2048 MB = 2 GB para usuarios Gratis
@@ -687,24 +681,51 @@ def link_user_app(token: str, user_id: int, full_name: str, username: str | None
     user_handle = f"@{username}" if username else ""
     user_plan_id = get_user_plan(user_id)
     plan_info = get_plan_info(user_plan_id)
-    plan_badge = plan_info.get("badge", "🆓")
-    plan_display = plan_info.get("display", "PLAN FREE")
-    data[code] = {
+    owner_flag = is_owner(user_id)
+
+    plan_badge = "👑" if owner_flag else plan_info.get("badge", "🆓")
+    plan_display = "Plan Omni" if owner_flag else plan_info.get("display", "Plan Free")
+    d_limit = plan_info.get("daily_bytes", 5 * GIB)
+    u_usage = get_daily_usage(user_id)
+    daily_bytes_val = -1 if (owner_flag or d_limit == float('inf')) else int(d_limit)
+    used_bytes_val = 0 if owner_flag else int(u_usage)
+    rem_val = -1 if daily_bytes_val == -1 else max(0, daily_bytes_val - used_bytes_val)
+    role_val = "Creador / Administrador" if owner_flag else "Usuario Estándar"
+
+    entry = {
         "user_id": user_id,
-        "name": full_name or "Usuario Verificado JK",
-        "username": user_handle,
+        "id": str(user_id),
+        "name": full_name or ("JAKUDOSHY ꫂꤪꤨᴼᶠᶜ" if owner_flag else "Usuario Telegram"),
+        "full_name": full_name or ("JAKUDOSHY ꫂꤪꤨᴼᶠᶜ" if owner_flag else "Usuario Telegram"),
+        "username": username or ("Jakudoshy" if owner_flag else ""),
+        "user_alias": user_handle or ("@Jakudoshy" if owner_flag else ""),
         "telegram_id": str(user_id),
-        "photo_url": photo_url,
+        "photo_url": photo_url or "",
         "status": "Verificado · Activo",
-        "balance": f"{balance}$ CUP",
+        "role": role_val,
+        "balance": balance,
+        "balance_str": f"{balance}$ CUP",
         "quota_plan": f"Plan: {plan_badge} {plan_display}",
         "plan_name": plan_display,
+        "plan": plan_display,
+        "plan_key": "owner" if owner_flag else user_plan_id,
+        "plan_display": plan_display,
+        "badge": plan_badge,
+        "storage_hours": 72 if owner_flag else plan_info.get("storage_hours", 12),
+        "daily_bytes": daily_bytes_val,
+        "used_bytes": used_bytes_val,
+        "remaining_bytes": rem_val,
         "linked_at": datetime.now(timezone.utc).isoformat(),
         "creator": "ᴊᴀᴋᴜᴅᴏѕʜʏꫂꤪꤨᴼᶠᶜ",
         "channel": "https://t.me/gg_no_rot",
         "bot": "@downfree_jk_bot",
         "active": True
     }
+    data[code] = entry
+    # Guardar tambien version limpia sin guiones
+    clean_k = "".join(c for c in code if c.isalnum()).upper()
+    if clean_k != code:
+        data[clean_k] = entry
     _save_json(APP_LINKS_FILE, data)
     try:
         ud = _load_json(USERS_DATA_FILE)
@@ -716,7 +737,7 @@ def link_user_app(token: str, user_id: int, full_name: str, username: str | None
             _save_json(USERS_DATA_FILE, ud)
     except Exception:
         pass
-    return data[code]
+    return entry
 
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -761,8 +782,9 @@ class JKBotApiHandler(BaseHTTPRequestHandler):
             return
         elif parsed.path == "/api/check_link":
             code = (qs.get("code") or [""])[0].strip().upper()
+            clean_code = "".join(c for c in code if c.isalnum()).upper()
             data = _load_json(APP_LINKS_FILE)
-            entry = data.get(code)
+            entry = data.get(code) or data.get(clean_code)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -771,21 +793,33 @@ class JKBotApiHandler(BaseHTTPRequestHandler):
                 try:
                     uid = int(entry.get("user_id", 0))
                     if uid > 0:
-                        p_key = get_user_plan(uid)
+                        owner_flag = is_owner(uid)
+                        p_key = "owner" if owner_flag else get_user_plan(uid)
                         p_info = get_plan_info(p_key)
-                        u_usage = get_user_daily_usage(uid)
-                        d_limit = p_info.get("daily_bytes", 2 * GIB)
+                        u_usage = get_daily_usage(uid)
+                        d_limit = p_info.get("daily_bytes", 5 * GIB)
+                        daily_val = -1 if (owner_flag or d_limit == float('inf')) else int(d_limit)
+                        used_val = 0 if owner_flag else int(u_usage)
+                        rem_val = -1 if daily_val == -1 else max(0, daily_val - used_val)
                         entry["plan_key"] = p_key
-                        entry["plan_display"] = p_info.get("display", "Plan Gratis")
-                        entry["storage_hours"] = p_info.get("storage_hours", 12)
-                        entry["daily_bytes"] = d_limit if d_limit != float('inf') else -1
-                        entry["used_bytes"] = u_usage
-                        entry["remaining_bytes"] = max(0, d_limit - u_usage) if d_limit != float('inf') else -1
-                except Exception:
-                    pass
-                self.wfile.write(json.dumps({"status": "linked", "data": entry}).encode())
+                        entry["plan_display"] = "Plan Omni" if owner_flag else p_info.get("display", "Plan Free")
+                        entry["plan"] = entry["plan_display"]
+                        entry["role"] = "Creador / Administrador" if owner_flag else "Usuario Estándar"
+                        entry["storage_hours"] = 72 if owner_flag else p_info.get("storage_hours", 12)
+                        entry["daily_bytes"] = daily_val
+                        entry["used_bytes"] = used_val
+                        entry["remaining_bytes"] = rem_val
+                except Exception as ex:
+                    log.error(f"Error procesando check_link: {ex}")
+                resp_payload = {
+                    "status": "linked",
+                    "linked": True,
+                    "user": entry,
+                    "data": entry
+                }
+                self.wfile.write(json.dumps(resp_payload).encode())
             else:
-                self.wfile.write(json.dumps({"status": "waiting"}).encode())
+                self.wfile.write(json.dumps({"status": "waiting", "linked": False}).encode())
             return
         elif parsed.path == "/api/user_info":
             uid_str = (qs.get("user_id") or [""])[0].strip()
@@ -795,21 +829,26 @@ class JKBotApiHandler(BaseHTTPRequestHandler):
                 self.send_response(400)
                 self.end_headers()
                 return
-            plan_key = get_user_plan(user_id)
+            owner_flag = is_owner(user_id)
+            plan_key = "owner" if owner_flag else get_user_plan(user_id)
             plan_info = get_plan_info(plan_key)
-            usage = get_user_daily_usage(user_id)
-            daily_limit = plan_info.get("daily_bytes", 2 * GIB)
-            remaining = max(0, daily_limit - usage) if daily_limit != float('inf') else float('inf')
+            usage = get_daily_usage(user_id)
+            daily_limit = plan_info.get("daily_bytes", 5 * GIB)
+            daily_val = -1 if (owner_flag or daily_limit == float('inf')) else int(daily_limit)
+            used_val = 0 if owner_flag else int(usage)
+            remaining_val = -1 if daily_val == -1 else max(0, daily_val - used_val)
             balance = get_user_balance(user_id)
             resp = {
                 "user_id": user_id,
-                "plan": plan_key,
-                "plan_display": plan_info.get("display", "Plan Gratis"),
-                "badge": plan_info.get("badge", "🆓"),
-                "storage_hours": plan_info.get("storage_hours", 12),
-                "daily_bytes": daily_limit if daily_limit != float('inf') else -1,
-                "used_bytes": usage,
-                "remaining_bytes": remaining if remaining != float('inf') else -1,
+                "plan": "Plan Omni" if owner_flag else plan_info.get("display", "Plan Free"),
+                "plan_key": plan_key,
+                "plan_display": "Plan Omni" if owner_flag else plan_info.get("display", "Plan Free"),
+                "badge": "👑" if owner_flag else plan_info.get("badge", "🆓"),
+                "role": "Creador / Administrador" if owner_flag else "Usuario Estándar",
+                "storage_hours": 72 if owner_flag else plan_info.get("storage_hours", 12),
+                "daily_bytes": daily_val,
+                "used_bytes": used_val,
+                "remaining_bytes": remaining_val,
                 "balance": f"{balance}$ CUP",
                 "creator": "ᴊᴀᴋᴜᴅᴏѕʜʏꫂꤪꤨᴼᶠᶜ"
             }
@@ -903,8 +942,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
             user_fullname = getattr(user, "full_name", "") or getattr(user, "first_name", "")
             user_handle = f"@{user.username}" if user.username else ""
-            user_plan_id = get_user_plan(user.id)
+            owner_flag = is_owner(user.id)
+            user_plan_id = "owner" if owner_flag else get_user_plan(user.id)
             plan_info = get_plan_info(user_plan_id)
+            plan_disp = "Plan Omni (Creador)" if owner_flag else plan_info.get('display', 'Plan Free')
+            daily_disp = "∞ GB (Ilimitado)" if owner_flag else plan_info.get('daily_label', '5.00 GB')
+            storage_disp = 72 if owner_flag else plan_info.get('storage_hours', 12)
 
             # Guardar tanto en formato limpio como con guiones
             link_user_app(token_code, user.id, user_fullname, getattr(user, "username", None), photo_url=avatar_url)
@@ -914,9 +957,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 "🎉 *¡Cuenta vinculada exitosamente con JK Downloader!*\n\n"
                 f"👤 *Usuario:* {user_handle or user_fullname}\n"
                 f"🆔 *ID:* `{user.id}`\n"
-                f"⭐ *Plan:* {plan_info.get('display', 'Plan Gratis')} ({plan_info.get('daily_label', '5.00 GB')})\n"
-                f"📦 *Retención en Nube:* {plan_info.get('storage_hours', 12)} horas\n\n"
-                "Ya puedes gestionar tus descargas desde la aplicación.\n\n"
+                f"⭐ *Plan:* {plan_disp} ({daily_disp})\n"
+                f"📦 *Retención en Nube:* {storage_disp} horas\n\n"
+                "✅ *Ya puedes volver a la aplicación JK Downloader.* Tu sesión ha sido verificada en tiempo real.\n\n"
                 "📢 *Canal Oficial:* https://t.me/gg_no_rot\n"
                 "🚀 *Mod by ᴊᴀᴋᴜᴅᴏѕʜʏꫂꤪꤨᴼᶠᶜ*"
             )
@@ -2071,11 +2114,6 @@ class _ToDusProgressStream:
         return getattr(self._file, name)
 
 def _build_todus_object_key(telegram_user_id: int, filename: str) -> str:
-    try:
-        from todus_s3_storage import build_object_key
-        return build_object_key(telegram_user_id, filename=filename)
-    except Exception:
-        pass
     actual_name = Path(filename or "download.bin").name
     clean_name = "".join(c for c in actual_name if ord(c) >= 32).strip() or "download.bin"
     return f"{int(telegram_user_id)}/{clean_name}"
@@ -2419,14 +2457,7 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
     try:
         size_hint = getattr(media, "file_size", None)
         use_mtproto = mtproto_client is not None and (size_hint is None or size_hint > BOT_API_DOWNLOAD_LIMIT)
-        requires_mtproto = bool(size_hint is not None and size_hint > BOT_API_DOWNLOAD_LIMIT)
         mtproto_downloaded = False
-
-        if requires_mtproto and mtproto_client is None:
-            raise ValueError(
-                "Archivo muy grande para la Bot API de Telegram. "
-                "Configura TELEGRAM_API_ID y TELEGRAM_API_HASH para activar la descarga MTProto."
-            )
 
         if use_mtproto and mtproto_client:
             original = None
@@ -2436,27 +2467,14 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
 
             if original is None:
                 try:
-                    # Telethon acepta el ID numérico directamente en muchas
-                    # sesiones; esto también funciona para mensajes privados
-                    # del propio bot y evita depender de una resolución extra.
-                    msgs = await mtproto_client.get_messages(message.chat_id, ids=message.message_id)
+                    chat_peer = await mtproto_client.get_entity(message.chat_id)
+                    msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
                     if isinstance(msgs, (list, tuple)) and msgs:
                         original = msgs[0]
                     elif msgs:
                         original = msgs
                 except Exception as exc:
-                    log.warning("No se pudo resolver mensaje MTProto por chat_id: %s", exc)
-
-                if original is None:
-                    try:
-                        chat_peer = await mtproto_client.get_entity(message.chat_id)
-                        msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
-                        if isinstance(msgs, (list, tuple)) and msgs:
-                            original = msgs[0]
-                        elif msgs:
-                            original = msgs
-                    except Exception as exc:
-                        log.warning("No se pudo resolver entidad MTProto por chat_id: %s", exc)
+                    log.warning("No se pudo resolver entidad MTProto por chat_id: %s", exc)
 
             if original is None or not getattr(original, "media", None):
                 fwd_chat = getattr(message, "forward_from_chat", None)
@@ -2488,16 +2506,6 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
                     except Exception as exc:
                         log.warning("Descarga MTProto intento %d falló: %s", attempt + 1, exc)
                         await asyncio.sleep(1.5)
-
-            # No intentar getFile después de un fallo MTProto si el documento
-            # ya supera el límite de la Bot API: ese camino siempre termina en
-            # "file is too big" y oculta la causa real del fallo.
-            if requires_mtproto and not mtproto_downloaded:
-                raise ValueError(
-                    "No se pudo descargar el archivo grande por MTProto. "
-                    "Verifica TELEGRAM_API_ID, TELEGRAM_API_HASH y que el bot "
-                    "pueda acceder al mensaje original o al reenvío."
-                )
 
         if not mtproto_downloaded:
             for attempt in range(3):
