@@ -122,6 +122,10 @@ def build_object_key(
         raise ValueError("El ID de Telegram debe ser un entero positivo.")
     actual_name = Path(filename or "download.bin").name
     clean_name = "".join(c for c in actual_name if ord(c) >= 32).strip() or "download.bin"
+    suffix = Path(clean_name).suffix
+    if not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", suffix):
+        stem = Path(clean_name).stem or "download"
+        clean_name = f"{stem}.bin"
     return f"{int(telegram_user_id)}/{clean_name}"
 
 

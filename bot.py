@@ -59,17 +59,20 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN EMBEBIDA (VALORES INTEGRADOS DIRECTAMENTE)
-#  No necesitas configurar ninguna variable en Railway / VPS / Hosting.
+#  CONFIGURACIÓN
+#  Los secretos deben vivir en variables de entorno; nunca en el repositorio.
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
+TOKEN_BOT_DE_TELEGRAM = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
-TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
-ID_API_TELEGRAM = 22012234
+TELEGRAM_BACKUP_CHAT_ID = os.getenv("TELEGRAM_BACKUP_CHAT_ID", "").strip()
+try:
+    ID_API_TELEGRAM = int(os.getenv("TELEGRAM_API_ID", "0").strip() or "0")
+except ValueError:
+    ID_API_TELEGRAM = 0
 TELEGRAM_API_ID = ID_API_TELEGRAM
-TELEGRAM_API_HASH = "cb5cbb3ab5b6bcf0bfc3df608eef869f"
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
 REQUIRED_GROUP = "@videogameplay0406"
 REQUIRED_CHANNEL = "@gg_no_root"
 OWNER_TELEGRAM_ID = 7935796405
@@ -2457,6 +2460,11 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
     try:
         size_hint = getattr(media, "file_size", None)
         use_mtproto = mtproto_client is not None and (size_hint is None or size_hint > BOT_API_DOWNLOAD_LIMIT)
+        if size_hint and size_hint > BOT_API_DOWNLOAD_LIMIT and mtproto_client is None:
+            raise ValueError(
+                "Archivo muy grande para la Bot API (supera 20 MiB). "
+                "Configura TELEGRAM_API_ID y TELEGRAM_API_HASH para descargarlo mediante MTProto."
+            )
         mtproto_downloaded = False
 
         if use_mtproto and mtproto_client:
@@ -2467,7 +2475,10 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
 
             if original is None:
                 try:
-                    chat_peer = await mtproto_client.get_entity(message.chat_id)
+                    if hasattr(mtproto_client, "get_entity"):
+                        chat_peer = await mtproto_client.get_entity(message.chat_id)
+                    else:
+                        chat_peer = message.chat_id
                     msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
                     if isinstance(msgs, (list, tuple)) and msgs:
                         original = msgs[0]
@@ -2506,6 +2517,12 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
                     except Exception as exc:
                         log.warning("Descarga MTProto intento %d falló: %s", attempt + 1, exc)
                         await asyncio.sleep(1.5)
+
+            if size_hint and size_hint > BOT_API_DOWNLOAD_LIMIT and not mtproto_downloaded:
+                raise ValueError(
+                    "No se pudo descargar el archivo grande mediante MTProto. "
+                    "Comprueba TELEGRAM_API_ID, TELEGRAM_API_HASH y el acceso del bot al mensaje."
+                )
 
         if not mtproto_downloaded:
             for attempt in range(3):
@@ -5193,31 +5210,43 @@ async def post_init(application: Application) -> None:
             asyncio.create_task(task_worker(application)) for _ in range(MAX_CONCURRENT_UPLOADS)
         ]
 
-    # Iniciar cliente Telethon MTProto usando las credenciales embebidas
+    # Iniciar cliente Telethon MTProto para superar el límite de descarga de la Bot API.
     application.bot_data["mtproto_client"] = None
+    application.bot_data["mtproto_message_cache"] = {}
+    api_id_raw = os.getenv("TELEGRAM_API_ID", str(ID_API_TELEGRAM)).strip()
+    api_hash = os.getenv("TELEGRAM_API_HASH", TELEGRAM_API_HASH).strip()
     try:
-        session_path = TELEGRAM_AUTH_DIR / "mtproto_bot.session"
-        mtproto_client = TelegramClient(str(session_path), ID_API_TELEGRAM, TELEGRAM_API_HASH)
-        await mtproto_client.start(bot_token=application.bot.token)
-        application.bot_data["mtproto_client"] = mtproto_client
-        application.bot_data["mtproto_message_cache"] = {}
-
-        async def cache_media_update(event):
-            if not getattr(event.message, "media", None):
-                return
-            cache = application.bot_data["mtproto_message_cache"]
-            cache[(event.chat_id, event.id)] = event.message
-            if len(cache) > 128:
-                cache.pop(next(iter(cache)))
-
-        mtproto_client.add_event_handler(cache_media_update, events.NewMessage)
+        api_id = int(api_id_raw or "0")
+    except ValueError:
+        api_id = 0
+    if not api_id or not api_hash:
+        log.warning(
+            "MTProto desactivado: configura TELEGRAM_API_ID y TELEGRAM_API_HASH "
+            "para archivos de Telegram mayores de 20 MiB."
+        )
+    else:
         try:
-            await mtproto_client.catch_up()
-        except Exception:
-            pass
-        log.info("MTProto listo con API ID %s", ID_API_TELEGRAM)
-    except Exception as exc:
-        log.warning("MTProto no iniciado: %s (el bot continuará operando vía Bot API)", exc)
+            session_path = TELEGRAM_AUTH_DIR / "mtproto_bot.session"
+            mtproto_client = TelegramClient(str(session_path), api_id, api_hash)
+            await mtproto_client.start(bot_token=application.bot.token)
+            application.bot_data["mtproto_client"] = mtproto_client
+
+            async def cache_media_update(event):
+                if not getattr(event.message, "media", None):
+                    return
+                cache = application.bot_data["mtproto_message_cache"]
+                cache[(event.chat_id, event.id)] = event.message
+                if len(cache) > 128:
+                    cache.pop(next(iter(cache)))
+
+            mtproto_client.add_event_handler(cache_media_update, events.NewMessage)
+            try:
+                await mtproto_client.catch_up()
+            except Exception:
+                pass
+            log.info("MTProto listo con API ID %s", api_id)
+        except Exception as exc:
+            log.warning("MTProto no iniciado: %s (el bot continuará operando vía Bot API)", exc)
 
 
 async def post_shutdown(application: Application) -> None:
@@ -5234,7 +5263,7 @@ async def post_shutdown(application: Application) -> None:
 
 
 def main() -> None:
-    token = TOKEN_BOT_DE_TELEGRAM.strip()
+    token = os.getenv("TELEGRAM_BOT_TOKEN", TOKEN_BOT_DE_TELEGRAM).strip()
     if not token:
         raise RuntimeError("Falta TOKEN_BOT_DE_TELEGRAM")
 
