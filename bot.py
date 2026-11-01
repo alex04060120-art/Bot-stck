@@ -2759,6 +2759,36 @@ def link_jk_filename(filename: str | None) -> str:
     return f"{clean_filename(stem, 'archivo')}.jk"
 
 
+async def send_jk_attachment(bot_obj, job) -> None:
+    """Envía un .jk adjunto con todos los enlaces de las partes subidas."""
+    if not job.part_urls:
+        return
+    jk_path = None
+    try:
+        jk_name = link_jk_filename(job.filename)
+        urls = [url for _, url in sorted(job.part_urls.items())]
+        content = "\n".join(urls) + "\n"
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", suffix=".jk", dir=TMPDIR, delete=False
+        ) as handle:
+            jk_path = Path(handle.name)
+            handle.write(content)
+        with jk_path.open("rb") as document:
+            await bot_obj.send_document(
+                chat_id=job.chat_id,
+                document=document,
+                filename=jk_name,
+                caption=sc(
+                    "✅ .ᴊᴋ ʟɪꜱᴛᴏ\n"
+                    "┠ ᴇʟ ᴀʀᴄʜɪᴠᴏ ᴄᴏɴᴛɪᴇɴᴇ ᴇʟ ᴇɴʟᴀᴄᴇ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀ.\n"
+                    "┖ ᴀʙʀᴇʟᴏ ᴄᴏɴ ᴛᴜ ᴀᴘʟɪᴄᴀᴄɪᴏ́ɴ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀꜱ."
+                ),
+            )
+    finally:
+        if jk_path:
+            jk_path.unlink(missing_ok=True)
+
+
 def split_into_parts(source: Path, filename: str, work_dir: Path, part_size: int) -> list[Path]:
     size = source.stat().st_size
     if size <= part_size:
@@ -2940,16 +2970,14 @@ def download_keyboard(url: str) -> InlineKeyboardMarkup:
 def result_keyboard(url: str, task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [btn("📥 Descargar archivo", url=url)],
-        [btn("📋 Copiar enlace", copy_text=CopyTextButton(text=url)),
-         btn("📄 Convertir .JK", callback_data=f"j:{task_id}:generate_jk")],
+        [btn("📋 Copiar enlace", copy_text=CopyTextButton(text=url))],
         [btn("🗑️ ʙᴏʀʀᴀʀ ᴅᴇ ʟᴀ ɴᴜʙᴇ", callback_data=f"j:{task_id}:cloud_delete")],
     ])
 
 
 def result_multi_keyboard(task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [btn("🔗 Enlaces", callback_data=f"j:{task_id}:links"),
-         btn("📄 Convertir .JK", callback_data=f"j:{task_id}:generate_jk")],
+        [btn("🔗 Enlaces", callback_data=f"j:{task_id}:links")],
         [btn("🗑️ ʙᴏʀʀᴀʀ ᴅᴇ ʟᴀ ɴᴜʙᴇ", callback_data=f"j:{task_id}:cloud_delete")],
     ])
 
@@ -3161,12 +3189,10 @@ def task_keyboard(job: TransferTask, *, show_manage: bool = False) -> InlineKeyb
         links = sorted(job.part_urls.items())
         if len(links) == 1:
             rows.append([btn("📥 Archivo", url=links[0][1])])
-            rows.append([btn("📋 Copiar", copy_text=CopyTextButton(text=links[0][1])),
-                         btn("📄 Convertir .JK", callback_data=f"j:{job.task_id}:generate_jk")])
+            rows.append([btn("📋 Copiar", copy_text=CopyTextButton(text=links[0][1]))])
             rows.append([btn("🗑️ Borrar", callback_data=f"j:{job.task_id}:cloud_delete")])
         elif links:
-            rows.append([btn("🔗 Enlaces", callback_data=f"j:{job.task_id}:links"),
-                         btn("📄 Convertir .JK", callback_data=f"j:{job.task_id}:generate_jk")])
+            rows.append([btn("🔗 Enlaces", callback_data=f"j:{job.task_id}:links")])
             rows.append([btn("🗑️ Borrar", callback_data=f"j:{job.task_id}:cloud_delete")])
     elif job.state in {"error", "cancelled", "paused"}:
         rows.append([btn("▶️ ʀᴇᴀɴᴜᴅᴀʀ", callback_data=f"j:{job.task_id}:retry")])
@@ -3502,6 +3528,10 @@ async def process_task(job: TransferTask, application: Application) -> None:
             reply_markup=final_keyboard,
             disable_web_page_preview=True,
         )
+        try:
+            await send_jk_attachment(application.bot, job)
+        except Exception as exc:
+            log.warning("No se pudo enviar el archivo .jk automático: %s", exc)
         # Notificar al Owner sobre la descarga completada en la nube
         try:
             owner_id = int(os.getenv("OWNER_TELEGRAM_ID", OWNER_TELEGRAM_ID))

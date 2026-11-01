@@ -24,6 +24,7 @@ from bot import (
     membership_prompt_text,
     result_keyboard,
     result_multi_keyboard,
+    send_jk_attachment,
     task_detail_text,
     transfer_complete_text,
     user_has_required_memberships,
@@ -93,18 +94,17 @@ class RequestedFeatureTests(unittest.TestCase):
             ["download:telegram", "download:url"],
         )
 
-    def test_ready_result_has_only_download_copy_and_convert_actions(self):
+    def test_ready_result_has_only_download_copy_and_delete_actions(self):
         url = "https://files.example/app.apk"
         markup = result_keyboard(url, "abc123")
         buttons = all_buttons(markup)
-        self.assertEqual([len(row) for row in markup.inline_keyboard], [1, 2, 1])
-        self.assertEqual(len(buttons), 4)
+        self.assertEqual([len(row) for row in markup.inline_keyboard], [1, 1, 1])
+        self.assertEqual(len(buttons), 3)
         download = next(button for button in buttons if button.url)
         copy = next(button for button in buttons if button.copy_text)
-        convert = next(button for button in buttons if button.callback_data == "j:abc123:generate_jk")
         self.assertEqual(download.url, url)
         self.assertEqual(copy.copy_text.text, url)
-        self.assertIn(".ᴊᴋ", convert.text)
+        self.assertFalse(any("ᴊᴋ" in (button.text or "") for button in buttons))
         self.assertEqual(buttons[-1].callback_data, "j:abc123:cloud_delete")
 
     def test_completion_message_contains_no_user_or_task_ids(self):
@@ -120,10 +120,10 @@ class RequestedFeatureTests(unittest.TestCase):
         self.assertEqual(link_jk_filename("My App (final).apk"), "My App (final).jk")
         self.assertEqual(link_jk_filename(None), "archivo.jk")
 
-    def test_multi_part_keyboard_is_compact_and_includes_jk_action(self):
+    def test_multi_part_keyboard_is_compact_without_conversion_action(self):
         markup = result_multi_keyboard("abc123")
-        self.assertEqual([len(row) for row in markup.inline_keyboard], [2, 1])
-        self.assertIn("j:abc123:generate_jk", [button.callback_data for button in all_buttons(markup)])
+        self.assertEqual([len(row) for row in markup.inline_keyboard], [1, 1])
+        self.assertNotIn("j:abc123:generate_jk", [button.callback_data for button in all_buttons(markup)])
         self.assertIn("j:abc123:cloud_delete", [button.callback_data for button in all_buttons(markup)])
 
     def test_task_detail_does_not_show_ids(self):
@@ -227,6 +227,25 @@ class MembershipCheckTests(unittest.IsolatedAsyncioTestCase):
 
 
 class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_upload_can_send_jk_attachment_automatically(self):
+        job = TransferTask(1, 1, "url", None, None)
+        job.filename = "app.apk"
+        job.part_urls = {0: "https://files.example/app.apk"}
+        sent = []
+
+        async def capture_document(**kwargs):
+            sent.append({
+                "filename": kwargs["filename"],
+                "content": kwargs["document"].read(),
+                "caption": kwargs["caption"],
+            })
+
+        bot = SimpleNamespace(send_document=capture_document)
+        await send_jk_attachment(bot, job)
+        self.assertEqual(sent[0]["filename"], "app.jk")
+        self.assertEqual(sent[0]["content"], b"https://files.example/app.apk\n")
+        self.assertIn(".ᴊᴋ", sent[0]["caption"])
+
     async def test_convert_callback_sends_named_jk_attachment_to_chat(self):
         original_url = "https://files.example/app.apk"
         job = TransferTask(7935796405, 7935796405, "url", None, None)
