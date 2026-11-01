@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
+import bot as telegram_bot
 from bot import (
     MIB,
     clean_filename,
@@ -84,10 +85,17 @@ class TelegramCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("📁", text)
         self.assertIn("🔗", text)
 
-    async def test_startup_without_mtproto_credentials_keeps_bot_available(self):
+    async def test_startup_uses_embedded_mtproto_credentials_without_environment(self):
+        client = SimpleNamespace(
+            start=AsyncMock(),
+            disconnect=AsyncMock(),
+            is_connected=Mock(return_value=True),
+            add_event_handler=Mock(),
+            catch_up=AsyncMock(),
+        )
         application = SimpleNamespace(
             bot=SimpleNamespace(
-                token="123:token",
+                token="different-token-is-ignored",
                 get_me=AsyncMock(return_value=SimpleNamespace(username="jk_bot")),
                 set_my_commands=AsyncMock(),
             ),
@@ -95,9 +103,12 @@ class TelegramCommandTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch.dict(os.environ, {
             "TELEGRAM_API_ID": "", "TELEGRAM_API_HASH": "", "TELEGRAM_BACKUP_CHAT_ID": "",
-        }):
+        }), patch("bot.TelegramClient", return_value=client) as client_factory:
             await post_init(application)
-        self.assertIsNone(application.bot_data["mtproto_client"])
+        client_factory.assert_called_once()
+        client.start.assert_awaited_once_with(bot_token=telegram_bot.TELEGRAM_BOT_TOKEN)
+        self.assertIs(application.bot_data["mtproto_client"], client)
+        await post_shutdown(application)
 
     async def test_startup_with_mtproto_credentials_starts_and_closes_client(self):
         client = SimpleNamespace(
@@ -121,7 +132,7 @@ class TelegramCommandTests(unittest.IsolatedAsyncioTestCase):
         ), patch("bot.TelegramClient", return_value=client) as client_factory:
             await post_init(application)
             client_factory.assert_called_once()
-            client.start.assert_awaited_once_with(bot_token="123:token")
+            client.start.assert_awaited_once_with(bot_token=telegram_bot.TELEGRAM_BOT_TOKEN)
             client.add_event_handler.assert_called_once()
             client.catch_up.assert_awaited_once()
             self.assertIs(application.bot_data["mtproto_client"], client)

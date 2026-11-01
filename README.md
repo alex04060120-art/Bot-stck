@@ -32,10 +32,10 @@ Bot privado de Telegram que recibe documentos, vídeos, audios, fotos, animacion
 <!-- Cambio documental de verificación de persistencia; no modifica la ejecución del bot. -->
 <!-- Prueba de deploy inocua: no modifica el comportamiento del bot. -->
 
-- `TELEGRAM_BOT_TOKEN`: token del bot creado con `@BotFather`. Es obligatorio.
+- El token del bot y las credenciales MTProto están integrados en `bot.py`; el bot puede arrancar sin `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID` ni `TELEGRAM_API_HASH`.
 - `TELEGRAM_BACKUP_CHAT_ID`: ID numérico o `@usuario` del canal o grupo de Telegram donde se publicará y fijará el respaldo cifrado. También se aceptan `BACKUP_CHAT_ID` o, como fallback, `TELEGRAM_CHANNEL_ID`. El bot debe poder enviar documentos allí; para fijar y reemplazar el mismo mensaje necesita permisos de fijado/edición.
 - `TELEGRAM_BACKUP_INTERVAL_SECONDS`: intervalo del respaldo automático; por defecto son 300 segundos y el mínimo es 30.
-- `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`: necesarios para descargar mediante MTProto archivos o reenvíos de Telegram de más de aproximadamente 20 MiB. Configúralos como secretos privados; no los pongas en `bot.py`, `.env` versionado ni GitHub. No sustituyen `TELEGRAM_BOT_TOKEN`.
+- Las credenciales MTProto (`api_id` y `api_hash`) están integradas en `bot.py`; no es necesario configurar `TELEGRAM_API_ID` ni `TELEGRAM_API_HASH` en Render/Railway para descargar archivos grandes. No sustituyen el token del bot.
 - **No se configuran `TODUS_PHONE`, `TODUS_PASSWORD` ni credenciales de ToDus.**
 - `REQUIRED_CHANNEL` y `REQUIRED_GROUP` indican los chats para comprobar membresía (por defecto `@gg_no_root` y `@videogameplay0406`). `CHANNEL_JOIN_URL` y `GROUP_JOIN_URL` indican los enlaces mostrados para unirse. El bot debe tener acceso suficiente para `getChatMember`; Telegram no garantiza la consulta de otros usuarios para bots no administradores.
 - `YTDLP_COOKIES_FILE` es opcional: ruta a un archivo Netscape de cookies autorizado para publicaciones de Facebook/Instagram que no entregan el vídeo sin sesión. Mantén el archivo fuera de GitHub, no lo envíes al bot y usa solo cookies de una cuenta que tengas permiso de utilizar.
@@ -47,21 +47,15 @@ Configura `TELEGRAM_BACKUP_CHAT_ID` con el ID numérico o `@usuario` del chat de
 
 El archivo único contiene los JSON de planes, cuotas, historial de tareas y reporte administrativo acumulativo, además de la carpeta real de autenticación de Telegram `telegram_auth/` (sesión SQLite de Telethon cuando MTProto está configurado). Se comprimen los datos con gzip y se cifran con AES-256-GCM; la clave se deriva del `TELEGRAM_BOT_TOKEN`, sin una tercera variable. No se envían ni registran sesiones sin cifrar. Después de la primera copia, cada actualización reemplaza el documento del mismo mensaje fijado mediante `editMessageMedia`; si Telegram rechaza la edición, el bot borra la copia anterior y publica inmediatamente la nueva, manteniendo una sola copia visible y sin acumular spam. Los datos no se eliminan durante un deploy: solo cambian cuando una acción autorizada del bot los modifica. Los registros anteriores se mantienen dentro del JSON acumulativo. La Bot API alojada limita `getFile` a 20 MiB, así que una copia mayor se rechaza con su tamaño y la última copia válida queda intacta. Mantén el mismo token del bot para poder descifrar las copias existentes; al rotarlo, las copias anteriores no se podrán restaurar.
 
-Este proyecto es un bot de Telegram: no usa Baileys ni tiene una carpeta `auth_info` de WhatsApp. La antigua sesión MTProto era solo de memoria; ahora, cuando se habilitan las credenciales MTProto opcionales ya documentadas, se guarda en `telegram_auth/` y se incluye cifrada. El token del bot sigue siendo el único requisito para el respaldo.
+Este proyecto es un bot de Telegram: no usa Baileys ni tiene una carpeta `auth_info` de WhatsApp. La sesión MTProto se guarda en `telegram_auth/` y se incluye cifrada en el respaldo. El token y las credenciales que usa el proceso están definidos en `bot.py`.
 
-### Configurar API ID y API Hash en Railway
+### Credenciales integradas
 
-1. Abre [my.telegram.org](https://my.telegram.org) y entra en **API development tools** para obtener `api_id` y `api_hash`. Son credenciales de aplicación de Telegram, no el token de `@BotFather`.
-2. En Railway, abre el proyecto y selecciona el servicio del bot.
-3. En **Variables**, agrega `TELEGRAM_API_ID` y `TELEGRAM_API_HASH` con sus valores.
-4. Confirma que `TELEGRAM_BOT_TOKEN` siga configurado, guarda los cambios y espera el redeploy.
-5. Prueba primero un archivo pequeño y luego un reenvío grande de Telegram.
-
-No pegues tokens ni hashes en el chat, el código o GitHub. Configura los valores privados en Railway.
+No hace falta crear variables `TELEGRAM_API_ID` ni `TELEGRAM_API_HASH`: el arranque de `bot.py` usa directamente los valores integrados y el mismo token integrado para iniciar Telethon. Después del redeploy, prueba primero un archivo pequeño y luego un reenvío grande de Telegram.
 
 ## Archivos grandes y límites
 
-La Bot API estándar de Telegram no descarga archivos mayores de aproximadamente 20 MiB. Para reenvíos grandes, configura juntos `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`; si falta alguno, el bot indica cómo habilitarlos.
+La Bot API estándar de Telegram no descarga archivos mayores de aproximadamente 20 MiB. Para reenvíos grandes, el bot usa automáticamente el cliente MTProto inicializado con las credenciales integradas en `bot.py`.
 
 `MAX_FILE_SIZE_MIB` establece el límite de entrada (por defecto 4096 MiB). Los archivos que superen `MAX_PART_SIZE_MIB` (por defecto 1900 MiB) se dividen en archivos independientes, como `archivo.part001.ext`. **Ver enlaces** entrega las partes sin crear un teclado extenso.
 
@@ -88,8 +82,8 @@ En Windows, puedes usar 7-Zip para recomponer las partes según el tipo de archi
 
 ## Ejecutar localmente
 
-1. Copia `.env.example` a `.env` y configura `TELEGRAM_BOT_TOKEN`.
-2. Para reenvíos de Telegram de más de ~20 MiB, agrega también `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`.
+1. Copia `.env.example` a `.env` solo si necesitas personalizar opciones no sensibles.
+2. El token y las credenciales MTProto ya están integrados en `bot.py`; no agregues variables Telegram para arrancar ni para archivos grandes.
 3. Ejecuta:
 
    ```bash
@@ -101,7 +95,7 @@ En Windows, puedes usar 7-Zip para recomponer las partes según el tipo de archi
 
 ## Railway
 
-Configura el repositorio `TELEGRAM_BOT_JK`, rama `main`, y verifica que el servicio tenga `TELEGRAM_BOT_TOKEN`. Añade `TELEGRAM_API_ID` y `TELEGRAM_API_HASH` solo si necesitas procesar reenvíos grandes. Tras el despliegue, abre `/ayuda` en Telegram.
+Configura el repositorio `TELEGRAM_BOT_JK`, rama `main`, y despliega el servicio. Las credenciales MTProto y el token usados por este bot están integrados en `bot.py`; no necesitas añadir `TELEGRAM_API_ID` ni `TELEGRAM_API_HASH`. Tras el despliegue, abre `/ayuda` en Telegram.
 
 La imagen Docker instala `ffmpeg` para combinar audio y vídeo cuando la plataforma los sirve por separado. Si ejecutas el bot fuera de Docker, instala también `ffmpeg` en el sistema. ToDus S3 es el único destino de almacenamiento de los archivos subidos. Telegram o una URL pública siguen siendo necesariamente la fuente de entrada; no se puede descargar un archivo desde ToDus si nunca fue subido allí.
 

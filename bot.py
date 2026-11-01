@@ -59,8 +59,9 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN
-#  Los secretos deben vivir en variables de entorno; nunca en el repositorio.
+#  CONFIGURACIÓN INTEGRADA
+#  Este despliegue usa los valores definidos aquí y no depende de variables
+#  de entorno para iniciar el bot ni su cliente MTProto.
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
@@ -2469,8 +2470,8 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
         use_mtproto = mtproto_client is not None and (size_hint is None or size_hint > BOT_API_DOWNLOAD_LIMIT)
         if size_hint and size_hint > BOT_API_DOWNLOAD_LIMIT and mtproto_client is None:
             raise ValueError(
-                "Archivo muy grande para la Bot API (supera 20 MiB). "
-                "Configura TELEGRAM_API_ID y TELEGRAM_API_HASH para descargarlo mediante MTProto."
+                "Archivo muy grande para la Bot API (supera 20 MiB) y el cliente MTProto integrado "
+                "no está disponible. Revisa los registros de arranque del bot."
             )
         mtproto_downloaded = False
 
@@ -5232,15 +5233,12 @@ async def post_init(application: Application) -> None:
     api_id = ID_API_TELEGRAM
     api_hash = TELEGRAM_API_HASH
     if not api_id or not api_hash:
-        log.warning(
-            "MTProto desactivado: configura TELEGRAM_API_ID y TELEGRAM_API_HASH "
-            "para archivos de Telegram mayores de 20 MiB."
-        )
+        log.error("MTProto desactivado: faltan las credenciales integradas en bot.py")
     else:
         try:
             session_path = TELEGRAM_AUTH_DIR / "mtproto_bot.session"
             mtproto_client = TelegramClient(str(session_path), api_id, api_hash)
-            await mtproto_client.start(bot_token=application.bot.token)
+            await mtproto_client.start(bot_token=TELEGRAM_BOT_TOKEN)
             application.bot_data["mtproto_client"] = mtproto_client
 
             async def cache_media_update(event):
@@ -5275,7 +5273,7 @@ async def post_shutdown(application: Application) -> None:
 
 
 def main() -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN", TOKEN_BOT_DE_TELEGRAM).strip()
+    token = TELEGRAM_BOT_TOKEN.strip()
     if not token:
         raise RuntimeError("Falta TOKEN_BOT_DE_TELEGRAM")
 
