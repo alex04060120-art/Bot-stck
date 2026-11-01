@@ -64,7 +64,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = "8880272278:AAFspZahBMgFKLCtjLeLE73-p2btyFyESGE"
+TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
 TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
 ID_API_TELEGRAM = 22012234
