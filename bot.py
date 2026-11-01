@@ -62,17 +62,14 @@ except ImportError:
 #  CONFIGURACIÓN
 #  Los secretos deben vivir en variables de entorno; nunca en el repositorio.
 # ═══════════════════════════════════════════════════════════════
-TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
+TODUS_BASE_URL = "https://stickers..todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
-TELEGRAM_BACKUP_CHAT_ID = os.getenv("TELEGRAM_BACKUP_CHAT_ID", "").strip()
-try:
-    ID_API_TELEGRAM = int(os.getenv("TELEGRAM_API_ID", "0").strip() or "0")
-except ValueError:
-    ID_API_TELEGRAM = 0
+TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
+ID_API_TELEGRAM = 22012234
 TELEGRAM_API_ID = ID_API_TELEGRAM
-TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
+TELEGRAM_API_HASH = "cb5cbb3ab5b6bcf0bfc3df608eef869f"
 REQUIRED_GROUP = "@videogameplay0406"
 REQUIRED_CHANNEL = "@gg_no_root"
 OWNER_TELEGRAM_ID = 7935796405
