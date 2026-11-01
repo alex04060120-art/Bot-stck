@@ -1955,7 +1955,7 @@ class TransferTask:
         self.state = "queued"
         self.error = None
         self.cancel_requested = False
-        self.txt_generating = False
+        self.jk_generating = False
         self.created_at = time.time()
         self.updated_at = time.time()
     def set_state(self, state: str) -> None:
@@ -2754,9 +2754,9 @@ def _part_filename(filename: str, index: int, total: int) -> str:
     return f"{path.stem}.part{index:03d}{path.suffix}"
 
 
-def link_txt_filename(filename: str | None) -> str:
+def link_jk_filename(filename: str | None) -> str:
     stem = Path(filename or "archivo").stem
-    return f"{clean_filename(stem, 'archivo')}.txt"
+    return f"{clean_filename(stem, 'archivo')}.jk"
 
 
 def split_into_parts(source: Path, filename: str, work_dir: Path, part_size: int) -> list[Path]:
@@ -2941,7 +2941,7 @@ def result_keyboard(url: str, task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [btn("📥 Descargar archivo", url=url)],
         [btn("📋 Copiar enlace", copy_text=CopyTextButton(text=url)),
-         btn("📄 Convertir TXT", callback_data=f"j:{task_id}:generate_txt")],
+         btn("📄 Convertir .JK", callback_data=f"j:{task_id}:generate_jk")],
         [btn("🗑️ ʙᴏʀʀᴀʀ ᴅᴇ ʟᴀ ɴᴜʙᴇ", callback_data=f"j:{task_id}:cloud_delete")],
     ])
 
@@ -2949,7 +2949,7 @@ def result_keyboard(url: str, task_id: str) -> InlineKeyboardMarkup:
 def result_multi_keyboard(task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [btn("🔗 Enlaces", callback_data=f"j:{task_id}:links"),
-         btn("📄 Convertir TXT", callback_data=f"j:{task_id}:generate_txt")],
+         btn("📄 Convertir .JK", callback_data=f"j:{task_id}:generate_jk")],
         [btn("🗑️ ʙᴏʀʀᴀʀ ᴅᴇ ʟᴀ ɴᴜʙᴇ", callback_data=f"j:{task_id}:cloud_delete")],
     ])
 
@@ -3162,11 +3162,11 @@ def task_keyboard(job: TransferTask, *, show_manage: bool = False) -> InlineKeyb
         if len(links) == 1:
             rows.append([btn("📥 Archivo", url=links[0][1])])
             rows.append([btn("📋 Copiar", copy_text=CopyTextButton(text=links[0][1])),
-                         btn("📄 Convertir TXT", callback_data=f"j:{job.task_id}:generate_txt")])
+                         btn("📄 Convertir .JK", callback_data=f"j:{job.task_id}:generate_jk")])
             rows.append([btn("🗑️ Borrar", callback_data=f"j:{job.task_id}:cloud_delete")])
         elif links:
             rows.append([btn("🔗 Enlaces", callback_data=f"j:{job.task_id}:links"),
-                         btn("📄 Convertir TXT", callback_data=f"j:{job.task_id}:generate_txt")])
+                         btn("📄 Convertir .JK", callback_data=f"j:{job.task_id}:generate_jk")])
             rows.append([btn("🗑️ Borrar", callback_data=f"j:{job.task_id}:cloud_delete")])
     elif job.state in {"error", "cancelled", "paused"}:
         rows.append([btn("▶️ ʀᴇᴀɴᴜᴅᴀʀ", callback_data=f"j:{job.task_id}:retry")])
@@ -4755,31 +4755,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         if action == "open":
             await show_task(job, target=query.message)
-        elif action == "generate_txt":
+        elif action == "generate_jk":
             if job.state != "done" or not job.part_urls:
                 return
-            job.txt_generating = True
-            txt_path = None
+            job.jk_generating = True
+            jk_path = None
             try:
-                txt_name = link_txt_filename(job.filename)
+                jk_name = link_jk_filename(job.filename)
                 urls = [url for _, url in sorted(job.part_urls.items())]
                 content = "\n".join(urls) + "\n"
-                with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", dir=TMPDIR, delete=False) as handle:
-                    txt_path = Path(handle.name)
+                with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".jk", dir=TMPDIR, delete=False) as handle:
+                    jk_path = Path(handle.name)
                     handle.write(content)
-                with txt_path.open("rb") as document:
+                with jk_path.open("rb") as document:
                     await context.bot.send_document(
                         chat_id=job.chat_id,
                         document=document,
-                        filename=txt_name,
-                        caption=sc("┎ ✅ ᴛxᴛ ʟɪꜱᴛᴏ\n┠─────────────────────\n┠ ʏᴀ ᴇꜱᴛᴀ‌ ᴅɪꜱᴘᴏɴɪʙʟᴇ ᴇɴ ʟᴀ ɴᴜʙᴇ.\n┃\n┠ Tú Archivo está disponible\n┠ para comenzar la descarga\n┠ toca para abrir el txt\n┠ con el APK Download Free\n┃\n┖ descarga el archivo antes de que expire aveces Expira antes de tiempo estamos trabajando en ello"),
+                        filename=jk_name,
+                        caption=sc("┎ ✅ .ᴊᴋ ʟɪꜱᴛᴏ\n┠─────────────────────\n┠ ʏᴀ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ ᴇɴ ʟᴀ ɴᴜʙᴇ.\n┃\n┠ ᴛᴜ ᴀʀᴄʜɪᴠᴏ .ᴊᴋ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ\n┠ ᴘᴀʀᴀ ᴄᴏᴍᴇɴᴢᴀʀ ʟᴀ ᴅᴇѕᴄᴀʀɢᴀ\n┠ ᴛᴏᴄᴀ ᴘᴀʀᴀ ᴀʙʀɪʀ ᴇʟ .ᴊᴋ\n┠ ᴄᴏɴ ᴇʟ ᴀᴘᴋ ᴅᴏᴡɴʟᴏᴀᴅ ꜰʀᴇᴇ\n┃\n┖ ᴅᴇѕᴄᴀʀɢᴀ ᴇʟ ᴀʀᴄʜɪᴠᴏ ᴀɴᴛᴇѕ ᴅᴇ ǫᴜᴇ ᴇxᴘɪʀᴇ"),
                     )
             except Exception:
                 pass
             finally:
-                job.txt_generating = False
-                if txt_path:
-                    txt_path.unlink(missing_ok=True)
+                job.jk_generating = False
+                if jk_path:
+                    jk_path.unlink(missing_ok=True)
         elif action == "cancel":
             cancelled = await manager.cancel(task_id, user.id)
             if cancelled:

@@ -8,7 +8,7 @@ from bot import (
     button_callback,
     download_keyboard,
     download_menu_keyboard,
-    link_txt_filename,
+    link_jk_filename,
     main_keyboard,
     apply_referral,
     get_user_balance,
@@ -101,10 +101,10 @@ class RequestedFeatureTests(unittest.TestCase):
         self.assertEqual(len(buttons), 4)
         download = next(button for button in buttons if button.url)
         copy = next(button for button in buttons if button.copy_text)
-        convert = next(button for button in buttons if button.callback_data == "j:abc123:generate_txt")
+        convert = next(button for button in buttons if button.callback_data == "j:abc123:generate_jk")
         self.assertEqual(download.url, url)
         self.assertEqual(copy.copy_text.text, url)
-        self.assertIn("ᴛˣᴛ", convert.text)
+        self.assertIn(".ᴊᴋ", convert.text)
         self.assertEqual(buttons[-1].callback_data, "j:abc123:cloud_delete")
 
     def test_completion_message_contains_no_user_or_task_ids(self):
@@ -116,14 +116,14 @@ class RequestedFeatureTests(unittest.TestCase):
         self.assertNotIn("abc123", text)
         self.assertNotIn("@ana", text)
 
-    def test_generated_txt_filename_uses_uploaded_file_stem(self):
-        self.assertEqual(link_txt_filename("My App (final).apk"), "My App (final).txt")
-        self.assertEqual(link_txt_filename(None), "archivo.txt")
+    def test_generated_jk_filename_uses_uploaded_file_stem(self):
+        self.assertEqual(link_jk_filename("My App (final).apk"), "My App (final).jk")
+        self.assertEqual(link_jk_filename(None), "archivo.jk")
 
-    def test_multi_part_keyboard_is_compact_and_includes_txt_action(self):
+    def test_multi_part_keyboard_is_compact_and_includes_jk_action(self):
         markup = result_multi_keyboard("abc123")
         self.assertEqual([len(row) for row in markup.inline_keyboard], [2, 1])
-        self.assertIn("j:abc123:generate_txt", [button.callback_data for button in all_buttons(markup)])
+        self.assertIn("j:abc123:generate_jk", [button.callback_data for button in all_buttons(markup)])
         self.assertIn("j:abc123:cloud_delete", [button.callback_data for button in all_buttons(markup)])
 
     def test_task_detail_does_not_show_ids(self):
@@ -226,8 +226,8 @@ class MembershipCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(query_message.edit_text.call_args.kwargs["reply_markup"])
 
 
-class TxtCallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_convert_callback_sends_named_txt_attachment_to_chat(self):
+class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_convert_callback_sends_named_jk_attachment_to_chat(self):
         original_url = "https://files.example/app.apk"
         job = TransferTask(7935796405, 7935796405, "url", None, None)
         job.task_id = "abc123"
@@ -235,7 +235,7 @@ class TxtCallbackTests(unittest.IsolatedAsyncioTestCase):
         job.filename = "app.apk"
         job.part_urls = {0: original_url}
         query_message = SimpleNamespace(edit_text=AsyncMock(), reply_text=AsyncMock())
-        query = SimpleNamespace(data="j:abc123:generate_txt", answer=AsyncMock(), message=query_message)
+        query = SimpleNamespace(data="j:abc123:generate_jk", answer=AsyncMock(), message=query_message)
         update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=7935796405))
         manager = SimpleNamespace(jobs={job.task_id: job})
         sent_documents = []
@@ -258,10 +258,9 @@ class TxtCallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(sent_documents), 1)
         self.assertEqual(sent_documents[0]["chat_id"], job.chat_id)
-        self.assertEqual(sent_documents[0]["filename"], "app.txt")
+        self.assertEqual(sent_documents[0]["filename"], "app.jk")
         self.assertEqual(sent_documents[0]["content"], (original_url + "\n").encode())
-        self.assertIn("ᴛˣᴛ", sent_documents[0]["caption"])
+        self.assertIn(".ᴊᴋ", sent_documents[0]["caption"])
         query_message.edit_text.assert_not_awaited()
         context.bot.send_document.assert_awaited_once()
-        self.assertFalse(job.txt_generating)
-        self.assertFalse(hasattr(job, "txt_url"))
+        self.assertFalse(job.jk_generating)

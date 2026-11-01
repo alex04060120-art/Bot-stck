@@ -28,7 +28,7 @@ class TransferTask:
     download_complete: bool = False
     part_paths: list[str] = field(default_factory=list)
     part_urls: dict[int, str] = field(default_factory=dict)
-    txt_generating: bool = False
+    jk_generating: bool = False
     error: str | None = None
     cancel_requested: bool = False
 
