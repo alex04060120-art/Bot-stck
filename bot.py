@@ -1,7 +1,7 @@
 """
 =============================================================================
              JK DOWN BOT - TODUS & TELEGRAM HIGH-SPEED BRIDGE
-  Configuración 100% integrada internamente sin depender de variables Railway
+  Configuración segura por entorno, compatible con Railway y Docker
   Sistema de Respaldo y Restauración Automático para Migración de Servidor
 =============================================================================
 """
@@ -59,20 +59,26 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN EMBEBIDA (VALORES INTEGRADOS DIRECTAMENTE)
-#  No necesitas configurar ninguna variable en Railway / VPS / Hosting.
+#  CONFIGURACIÓN DEL DESPLIEGUE
+#  Los secretos se leen desde el entorno y nunca deben quedar en Git.
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
+TOKEN_BOT_DE_TELEGRAM = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
-TELEGRAM_BACKUP_CHAT_ID = "-1003809444295"
-ID_API_TELEGRAM = 22012234
+TELEGRAM_BACKUP_CHAT_ID = os.getenv("TELEGRAM_BACKUP_CHAT_ID", "").strip()
+try:
+    ID_API_TELEGRAM = int(os.getenv("TELEGRAM_API_ID", "0") or 0)
+except ValueError:
+    ID_API_TELEGRAM = 0
 TELEGRAM_API_ID = ID_API_TELEGRAM
-TELEGRAM_API_HASH = "cb5cbb3ab5b6bcf0bfc3df608eef869f"
-REQUIRED_GROUP = "@videogameplay0406"
-REQUIRED_CHANNEL = "@gg_no_root"
-OWNER_TELEGRAM_ID = 7935796405
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
+REQUIRED_GROUP = os.getenv("REQUIRED_GROUP", "@videogameplay0406")
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@gg_no_root")
+try:
+    OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0") or 0)
+except ValueError:
+    OWNER_TELEGRAM_ID = 0
 MAX_TRANSFER_HOURS = 24
 MAX_FILE_MB_PREMIUM = 0       # 0 = Ilimitado para Premium
 MAX_FILE_MB_FREE = 2048       # 2048 MB = 2 GB para usuarios Gratis
@@ -2408,7 +2414,14 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
     try:
         size_hint = getattr(media, "file_size", None)
         use_mtproto = mtproto_client is not None and (size_hint is None or size_hint > BOT_API_DOWNLOAD_LIMIT)
+        requires_mtproto = bool(size_hint is not None and size_hint > BOT_API_DOWNLOAD_LIMIT)
         mtproto_downloaded = False
+
+        if requires_mtproto and mtproto_client is None:
+            raise ValueError(
+                "Archivo muy grande para la Bot API de Telegram. "
+                "Configura TELEGRAM_API_ID y TELEGRAM_API_HASH para activar la descarga MTProto."
+            )
 
         if use_mtproto and mtproto_client:
             original = None
@@ -2418,14 +2431,27 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
 
             if original is None:
                 try:
-                    chat_peer = await mtproto_client.get_entity(message.chat_id)
-                    msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
+                    # Telethon acepta el ID numérico directamente en muchas
+                    # sesiones; esto también funciona para mensajes privados
+                    # del propio bot y evita depender de una resolución extra.
+                    msgs = await mtproto_client.get_messages(message.chat_id, ids=message.message_id)
                     if isinstance(msgs, (list, tuple)) and msgs:
                         original = msgs[0]
                     elif msgs:
                         original = msgs
                 except Exception as exc:
-                    log.warning("No se pudo resolver entidad MTProto por chat_id: %s", exc)
+                    log.warning("No se pudo resolver mensaje MTProto por chat_id: %s", exc)
+
+                if original is None:
+                    try:
+                        chat_peer = await mtproto_client.get_entity(message.chat_id)
+                        msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
+                        if isinstance(msgs, (list, tuple)) and msgs:
+                            original = msgs[0]
+                        elif msgs:
+                            original = msgs
+                    except Exception as exc:
+                        log.warning("No se pudo resolver entidad MTProto por chat_id: %s", exc)
 
             if original is None or not getattr(original, "media", None):
                 fwd_chat = getattr(message, "forward_from_chat", None)
@@ -2457,6 +2483,16 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
                     except Exception as exc:
                         log.warning("Descarga MTProto intento %d falló: %s", attempt + 1, exc)
                         await asyncio.sleep(1.5)
+
+            # No intentar getFile después de un fallo MTProto si el documento
+            # ya supera el límite de la Bot API: ese camino siempre termina en
+            # "file is too big" y oculta la causa real del fallo.
+            if requires_mtproto and not mtproto_downloaded:
+                raise ValueError(
+                    "No se pudo descargar el archivo grande por MTProto. "
+                    "Verifica TELEGRAM_API_ID, TELEGRAM_API_HASH y que el bot "
+                    "pueda acceder al mensaje original o al reenvío."
+                )
 
         if not mtproto_downloaded:
             for attempt in range(3):
