@@ -2071,6 +2071,11 @@ class _ToDusProgressStream:
         return getattr(self._file, name)
 
 def _build_todus_object_key(telegram_user_id: int, filename: str) -> str:
+    try:
+        from todus_s3_storage import build_object_key
+        return build_object_key(telegram_user_id, filename=filename)
+    except Exception:
+        pass
     actual_name = Path(filename or "download.bin").name
     clean_name = "".join(c for c in actual_name if ord(c) >= 32).strip() or "download.bin"
     return f"{int(telegram_user_id)}/{clean_name}"
