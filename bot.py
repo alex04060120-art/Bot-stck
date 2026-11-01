@@ -2759,8 +2759,9 @@ def link_jk_filename(filename: str | None) -> str:
     return f"{clean_filename(stem, 'archivo')}.jk"
 
 
-async def send_jk_attachment(bot_obj, job) -> None:
-    """Envía un .jk adjunto con todos los enlaces de las partes subidas."""
+async def send_jk_attachment(bot_obj, job, *, caption: str | None = None,
+                             reply_markup=None) -> None:
+    """Envía un .jk con su texto y botones en el mismo mensaje de Telegram."""
     if not job.part_urls:
         return
     jk_path = None
@@ -2778,11 +2779,9 @@ async def send_jk_attachment(bot_obj, job) -> None:
                 chat_id=job.chat_id,
                 document=document,
                 filename=jk_name,
-                caption=sc(
-                    "✅ .ᴊᴋ ʟɪꜱᴛᴏ\n"
-                    "┠ ᴇʟ ᴀʀᴄʜɪᴠᴏ ᴄᴏɴᴛɪᴇɴᴇ ᴇʟ ᴇɴʟᴀᴄᴇ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀ.\n"
-                    "┖ ᴀʙʀᴇʟᴏ ᴄᴏɴ ᴛᴜ ᴀᴘʟɪᴄᴀᴄɪᴏ́ɴ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀꜱ."
-                ),
+                caption=caption or sc("✅ .ᴊᴋ ʟɪꜱᴛᴏ\n┖ ᴀʙʀᴇʟᴏ ᴄᴏɴ ᴛᴜ ᴀᴘʟɪᴄᴀᴄɪᴏ́ɴ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀꜱ."),
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
             )
     finally:
         if jk_path:
@@ -3517,21 +3516,38 @@ async def process_task(job: TransferTask, application: Application) -> None:
             final_keyboard = result_keyboard(links[0][1], job.task_id)
         else:
             final_keyboard = result_multi_keyboard(job.task_id)
-        await job.status_message.edit_text(
-            transfer_complete_text(
-                filename=filename,
-                size=size,
-                parts=len(job.part_urls),
-                duration=max(0, job.updated_at - job.created_at),
-                expires_at=expires_at,
-            ),
-            reply_markup=final_keyboard,
-            disable_web_page_preview=True,
-        )
         try:
-            await send_jk_attachment(application.bot, job)
+            await send_jk_attachment(
+                application.bot,
+                job,
+                caption=transfer_complete_text(
+                    filename=filename,
+                    size=size,
+                    parts=len(job.part_urls),
+                    duration=max(0, job.updated_at - job.created_at),
+                    expires_at=expires_at,
+                ),
+                reply_markup=final_keyboard,
+            )
+            # El documento ya contiene el texto y los botones; quitamos el
+            # mensaje provisional para que el usuario vea un único mensaje.
+            try:
+                await job.status_message.delete()
+            except Exception as delete_exc:
+                log.warning("El mensaje provisional no se pudo borrar: %s", delete_exc)
         except Exception as exc:
-            log.warning("No se pudo enviar el archivo .jk automático: %s", exc)
+            log.warning("No se pudo enviar el mensaje JK completo: %s", exc)
+            await job.status_message.edit_text(
+                transfer_complete_text(
+                    filename=filename,
+                    size=size,
+                    parts=len(job.part_urls),
+                    duration=max(0, job.updated_at - job.created_at),
+                    expires_at=expires_at,
+                ),
+                reply_markup=final_keyboard,
+                disable_web_page_preview=True,
+            )
         # Notificar al Owner sobre la descarga completada en la nube
         try:
             owner_id = int(os.getenv("OWNER_TELEGRAM_ID", OWNER_TELEGRAM_ID))

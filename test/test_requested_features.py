@@ -241,10 +241,11 @@ class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
             })
 
         bot = SimpleNamespace(send_document=capture_document)
-        await send_jk_attachment(bot, job)
+        markup = object()
+        await send_jk_attachment(bot, job, caption="✅ archivo listo", reply_markup=markup)
         self.assertEqual(sent[0]["filename"], "app.jk")
         self.assertEqual(sent[0]["content"], b"https://files.example/app.apk\n")
-        self.assertIn(".ᴊᴋ", sent[0]["caption"])
+        self.assertEqual(sent[0]["caption"], "✅ archivo listo")
 
     async def test_convert_callback_sends_named_jk_attachment_to_chat(self):
         original_url = "https://files.example/app.apk"
