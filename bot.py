@@ -2481,18 +2481,24 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
                 original = mtproto_message_cache.get(cache_key)
 
             if original is None:
-                try:
-                    if hasattr(mtproto_client, "get_entity"):
-                        chat_peer = await mtproto_client.get_entity(message.chat_id)
-                    else:
-                        chat_peer = message.chat_id
-                    msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
-                    if isinstance(msgs, (list, tuple)) and msgs:
-                        original = msgs[0]
-                    elif msgs:
-                        original = msgs
-                except Exception as exc:
-                    log.warning("No se pudo resolver entidad MTProto por chat_id: %s", exc)
+                peers = [message.chat_id]
+                if hasattr(mtproto_client, "get_entity"):
+                    try:
+                        peers.insert(0, await mtproto_client.get_entity(message.chat_id))
+                    except Exception as exc:
+                        log.warning("No se pudo resolver entidad MTProto; probando chat_id directo: %s", exc)
+                for chat_peer in peers:
+                    try:
+                        msgs = await mtproto_client.get_messages(chat_peer, ids=message.message_id)
+                        if isinstance(msgs, (list, tuple)) and msgs:
+                            original = msgs[0]
+                        elif msgs:
+                            original = msgs
+                        if original and getattr(original, "media", None):
+                            break
+                        original = None
+                    except Exception as exc:
+                        log.warning("No se pudo leer el mensaje %s por MTProto: %s", message.message_id, exc)
 
             if original is None or not getattr(original, "media", None):
                 fwd_chat = getattr(message, "forward_from_chat", None)
@@ -2527,8 +2533,9 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
 
             if size_hint and size_hint > BOT_API_DOWNLOAD_LIMIT and not mtproto_downloaded:
                 raise ValueError(
-                    "No se pudo descargar el archivo grande mediante MTProto. "
-                    "Comprueba TELEGRAM_API_ID, TELEGRAM_API_HASH y el acceso del bot al mensaje."
+                    "Telegram no entregó el archivo grande mediante MTProto. "
+                    "El bot debe poder leer el chat original y el mensaje debe seguir disponible; "
+                    "reenvía el archivo desde un chat donde el bot tenga acceso."
                 )
 
         if not mtproto_downloaded:
