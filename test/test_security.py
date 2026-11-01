@@ -65,7 +65,7 @@ class TelegramCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ᴘᴇɢᴀ ᴜɴ ᴇɴʟᴀᴄᴇ", args[0])
         self.assertGreater(len(args[0].splitlines()), 8)
         self.assertIsNotNone(kwargs.get("reply_markup"))
-        self.assertIn("├──────────────────────┤", args[0])
+        self.assertIn("┠─────────────────────", args[0])
 
     def test_main_keyboard_has_balance_and_plan_button(self):
         labels = [button.text for row in main_keyboard().inline_keyboard for button in row]

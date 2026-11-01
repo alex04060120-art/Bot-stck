@@ -8,7 +8,7 @@ from bot import (
     button_callback,
     download_keyboard,
     download_menu_keyboard,
-    link_jk_filename,
+    link_txt_filename,
     main_keyboard,
     apply_referral,
     get_user_balance,
@@ -24,7 +24,7 @@ from bot import (
     membership_prompt_text,
     result_keyboard,
     result_multi_keyboard,
-    send_jk_attachment,
+    send_txt_attachment,
     task_detail_text,
     transfer_complete_text,
     user_has_required_memberships,
@@ -117,8 +117,8 @@ class RequestedFeatureTests(unittest.TestCase):
         self.assertNotIn("@ana", text)
 
     def test_generated_jk_filename_uses_uploaded_file_stem(self):
-        self.assertEqual(link_jk_filename("My App (final).apk"), "My App (final).jk")
-        self.assertEqual(link_jk_filename(None), "archivo.jk")
+        self.assertEqual(link_txt_filename("My App (final).apk"), "My App (final).txt")
+        self.assertEqual(link_txt_filename(None), "archivo.txt")
 
     def test_multi_part_keyboard_is_compact_without_conversion_action(self):
         markup = result_multi_keyboard("abc123")
@@ -226,8 +226,8 @@ class MembershipCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(query_message.edit_text.call_args.kwargs["reply_markup"])
 
 
-class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_completed_upload_can_send_jk_attachment_automatically(self):
+class TxtCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_upload_can_send_txt_attachment_automatically(self):
         job = TransferTask(1, 1, "url", None, None)
         job.filename = "app.apk"
         job.part_urls = {0: "https://files.example/app.apk"}
@@ -242,12 +242,12 @@ class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
 
         bot = SimpleNamespace(send_document=capture_document)
         markup = object()
-        await send_jk_attachment(bot, job, caption="✅ archivo listo", reply_markup=markup)
-        self.assertEqual(sent[0]["filename"], "app.jk")
+        await send_txt_attachment(bot, job, caption="✅ archivo listo", reply_markup=markup)
+        self.assertEqual(sent[0]["filename"], "app.txt")
         self.assertEqual(sent[0]["content"], b"https://files.example/app.apk\n")
         self.assertEqual(sent[0]["caption"], "✅ archivo listo")
 
-    async def test_convert_callback_sends_named_jk_attachment_to_chat(self):
+    async def test_convert_callback_sends_named_txt_attachment_to_chat(self):
         original_url = "https://files.example/app.apk"
         job = TransferTask(7935796405, 7935796405, "url", None, None)
         job.task_id = "abc123"
@@ -278,9 +278,9 @@ class JkCallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(sent_documents), 1)
         self.assertEqual(sent_documents[0]["chat_id"], job.chat_id)
-        self.assertEqual(sent_documents[0]["filename"], "app.jk")
+        self.assertEqual(sent_documents[0]["filename"], "app.txt")
         self.assertEqual(sent_documents[0]["content"], (original_url + "\n").encode())
-        self.assertIn(".ᴊᴋ", sent_documents[0]["caption"])
+        self.assertIn(".ᴛxᴛ", sent_documents[0]["caption"])
         query_message.edit_text.assert_not_awaited()
         context.bot.send_document.assert_awaited_once()
-        self.assertFalse(job.jk_generating)
+        self.assertFalse(job.txt_generating)

@@ -154,7 +154,7 @@ PROTECTED_PATTERN = re.compile(r"(<[^>]+>|\{mono:[^}]+})")
 def card(title: str, lines: list[str] | tuple[str, ...]) -> str:
     """Genera tarjetas estéticas con recuadro futurista cerrado:
     - Arriba izquierda: ┎ <b>{header_title}</b>
-    - Separador: ┠──────────────────────
+    - Separador: ┠─────────────────────
     - Líneas con texto o letras: ┠ 
     - Líneas vacías: ┃ (línea vertical gruesa del mismo grosor que ┎, ┠ y ┖)
     - Abajo izquierda (última línea de contenido): ┖ {último_texto}
@@ -175,7 +175,7 @@ def card(title: str, lines: list[str] | tuple[str, ...]) -> str:
     for line in flat_lines:
         line_str = str(line)
         clean_check = line_str.strip()
-        if not clean_check or clean_check in {"┃", "│", "|", "┠", "┠──────────────────────", "----------------------"}:
+        if not clean_check or clean_check in {"┃", "│", "|", "┠", "┠─────────────────────", "----------------------"}:
             raw_items.append("┃")
             continue
         protected_parts = []
@@ -220,7 +220,7 @@ def card(title: str, lines: list[str] | tuple[str, ...]) -> str:
             last_content_idx = i
             break
 
-    out = [f"┎ <b>{header_title}</b>", "┠──────────────────────"]
+    out = [f"┎ <b>{header_title}</b>", "┠─────────────────────"]
     for i, it in enumerate(raw_items):
         if it == "┃":
             out.append("┃")
@@ -1955,7 +1955,7 @@ class TransferTask:
         self.state = "queued"
         self.error = None
         self.cancel_requested = False
-        self.jk_generating = False
+        self.txt_generating = False
         self.created_at = time.time()
         self.updated_at = time.time()
     def set_state(self, state: str) -> None:
@@ -2654,7 +2654,7 @@ def upload_progress_text(sent: int, total: int, speed: float = 0, eta: float | N
 
     out = [
         "┎ 📤 <b>ѕᴜʙɪᴇɴᴅᴏ ᴀ ᴛᴏᴅᴜѕ ѕ3</b>",
-        "┠──────────────────────",
+        "┠─────────────────────",
     ]
     if header:
         out.append(f"┠ {header}")
@@ -2682,7 +2682,7 @@ def download_progress_text(received: int, total: int, speed: float = 0, eta: flo
 
     out = [
         "┎ 📥 <b>ᴅᴇѕᴄᴀʀɢᴀɴᴅᴏ ʀᴇᴄᴜʀѕᴏ</b>",
-        "┠──────────────────────",
+        "┠─────────────────────",
     ]
     if header:
         out.append(f"┠ {header}")
@@ -2754,23 +2754,23 @@ def _part_filename(filename: str, index: int, total: int) -> str:
     return f"{path.stem}.part{index:03d}{path.suffix}"
 
 
-def link_jk_filename(filename: str | None) -> str:
+def link_txt_filename(filename: str | None) -> str:
     stem = Path(filename or "archivo").stem
-    return f"{clean_filename(stem, 'archivo')}.jk"
+    return f"{clean_filename(stem, 'archivo')}.txt"
 
 
-async def send_jk_attachment(bot_obj, job, *, caption: str | None = None,
+async def send_txt_attachment(bot_obj, job, *, caption: str | None = None,
                              reply_markup=None) -> None:
-    """Envía un .jk con su texto y botones en el mismo mensaje de Telegram."""
+    """Envía un .txt con su texto y botones en el mismo mensaje de Telegram."""
     if not job.part_urls:
         return
     jk_path = None
     try:
-        jk_name = link_jk_filename(job.filename)
+        txt_name = link_txt_filename(job.filename)
         urls = [url for _, url in sorted(job.part_urls.items())]
         content = "\n".join(urls) + "\n"
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", suffix=".jk", dir=TMPDIR, delete=False
+            "w", encoding="utf-8", suffix=".txt", dir=TMPDIR, delete=False
         ) as handle:
             jk_path = Path(handle.name)
             handle.write(content)
@@ -2778,8 +2778,8 @@ async def send_jk_attachment(bot_obj, job, *, caption: str | None = None,
             await bot_obj.send_document(
                 chat_id=job.chat_id,
                 document=document,
-                filename=jk_name,
-                caption=caption or sc("✅ .ᴊᴋ ʟɪꜱᴛᴏ\n┖ ᴀʙʀᴇʟᴏ ᴄᴏɴ ᴛᴜ ᴀᴘʟɪᴄᴀᴄɪᴏ́ɴ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀꜱ."),
+                filename=txt_name,
+                caption=caption or sc("✅ ᴀʀᴄʜɪᴠᴏ ʟɪꜱᴛᴏ\n┖ ᴀʙʀᴇʟᴏ ᴄᴏɴ ᴛᴜ ᴀᴘʟɪᴄᴀᴄɪᴏ́ɴ ᴅᴇ ᴅᴇꜱᴄᴀʀɢᴀꜱ."),
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
             )
@@ -3517,7 +3517,7 @@ async def process_task(job: TransferTask, application: Application) -> None:
         else:
             final_keyboard = result_multi_keyboard(job.task_id)
         try:
-            await send_jk_attachment(
+            await send_txt_attachment(
                 application.bot,
                 job,
                 caption=transfer_complete_text(
@@ -4804,26 +4804,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif action == "generate_jk":
             if job.state != "done" or not job.part_urls:
                 return
-            job.jk_generating = True
+            job.txt_generating = True
             jk_path = None
             try:
-                jk_name = link_jk_filename(job.filename)
+                txt_name = link_txt_filename(job.filename)
                 urls = [url for _, url in sorted(job.part_urls.items())]
                 content = "\n".join(urls) + "\n"
-                with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".jk", dir=TMPDIR, delete=False) as handle:
+                with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", dir=TMPDIR, delete=False) as handle:
                     jk_path = Path(handle.name)
                     handle.write(content)
                 with jk_path.open("rb") as document:
                     await context.bot.send_document(
                         chat_id=job.chat_id,
                         document=document,
-                        filename=jk_name,
-                        caption=sc("┎ ✅ .ᴊᴋ ʟɪꜱᴛᴏ\n┠─────────────────────\n┠ ʏᴀ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ ᴇɴ ʟᴀ ɴᴜʙᴇ.\n┃\n┠ ᴛᴜ ᴀʀᴄʜɪᴠᴏ .ᴊᴋ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ\n┠ ᴘᴀʀᴀ ᴄᴏᴍᴇɴᴢᴀʀ ʟᴀ ᴅᴇѕᴄᴀʀɢᴀ\n┠ ᴛᴏᴄᴀ ᴘᴀʀᴀ ᴀʙʀɪʀ ᴇʟ .ᴊᴋ\n┠ ᴄᴏɴ ᴇʟ ᴀᴘᴋ ᴅᴏᴡɴʟᴏᴀᴅ ꜰʀᴇᴇ\n┃\n┖ ᴅᴇѕᴄᴀʀɢᴀ ᴇʟ ᴀʀᴄʜɪᴠᴏ ᴀɴᴛᴇѕ ᴅᴇ ǫᴜᴇ ᴇxᴘɪʀᴇ"),
+                        filename=txt_name,
+                        caption=sc("┎ ✅ ᴀʀᴄʜɪᴠᴏ ʟɪѕᴛᴏ\n┠─────────────────────\n┠ ʏᴀ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ ᴇɴ ʟᴀ ɴᴜʙᴇ.\n┃\n┠ ᴛᴜ ᴀʀᴄʜɪᴠᴏ .ᴛxᴛ ᴇѕᴛᴀ́ ᴅɪѕᴘᴏɴɪʙʟᴇ\n┠ ᴘᴀʀᴀ ᴄᴏᴍᴇɴᴢᴀʀ ʟᴀ ᴅᴇѕᴄᴀʀɢᴀ\n┠ ᴛᴏᴄᴀ ᴘᴀʀᴀ ᴀʙʀɪʀ ᴇʟ .ᴛxᴛ\n┃\n┖ ᴅᴇѕᴄᴀʀɢᴀ ᴇʟ ᴀʀᴄʜɪᴠᴏ ᴀɴᴛᴇѕ ᴅᴇ ǫᴜᴇ ᴇxᴘɪʀᴇ"),
                     )
             except Exception:
                 pass
             finally:
-                job.jk_generating = False
+                job.txt_generating = False
                 if jk_path:
                     jk_path.unlink(missing_ok=True)
         elif action == "cancel":
