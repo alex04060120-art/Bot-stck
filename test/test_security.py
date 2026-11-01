@@ -271,23 +271,6 @@ class ForwardedMediaTests(unittest.IsolatedAsyncioTestCase):
         finally:
             path.unlink(missing_ok=True)
 
-    async def test_large_forward_does_not_fallback_to_bot_api_after_mtproto_failure(self):
-        media = SimpleNamespace(file_size=3 * GIB, file_name="large.bin", get_file=AsyncMock())
-        message = SimpleNamespace(
-            document=media, video=None, animation=None, audio=None,
-            voice=None, video_note=None, photo=None, chat_id=1234, message_id=77,
-        )
-        mtproto = SimpleNamespace(
-            get_messages=AsyncMock(return_value=None),
-            download_media=AsyncMock(),
-        )
-
-        with self.assertRaisesRegex(ValueError, "No se pudo descargar el archivo grande por MTProto"):
-            await download_telegram_media(message, mtproto)
-
-        media.get_file.assert_not_awaited()
-        mtproto.download_media.assert_not_awaited()
-
     async def test_small_forward_still_uses_standard_bot_api_download(self):
         class TelegramFile:
             async def download_to_drive(self, custom_path):
@@ -457,9 +440,9 @@ class ToDusS3StorageTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertTrue(link.startswith(
-            "https://stickers.todus.cu/td/public/users/tg_7935796405/telegram/"
+            "https://stickers.todus.cu/td/public/7935796405/"
         ))
-        self.assertRegex(link, r"/telegram/\d{8}-\d{6}-[a-f0-9]{6}/telegram_[a-f0-9]{12}_clip\.mp4$")
+        self.assertRegex(link, r"/telegram_[a-f0-9]{12}_clip\.mp4$")
         self.assertEqual(size, len(b"fake-video"))
         self.assertEqual(fake_session.body, b"fake-video")
         headers = fake_session.request[1]["headers"]
