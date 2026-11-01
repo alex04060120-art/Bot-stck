@@ -11,7 +11,9 @@ from urllib.parse import quote, parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 
 TODUS_S3_BASE_URL = "https://stickers.todus.cu/td/public"
-CHUNK_SIZE = 64 * 1024  # 64 KB para flujo óptimo y estable con ToDus S3
+# Bloques grandes reducen drásticamente las lecturas y llamadas de Python en
+# archivos de cientos de MiB/GB sin cargar el archivo completo en memoria.
+CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB por lectura para subida de alta velocidad
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
 mimetypes.add_type("application/vnd.android.package-archive", ".apk")
@@ -126,7 +128,10 @@ def build_object_key(
     if not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", suffix):
         stem = Path(clean_name).stem or "download"
         clean_name = f"{stem}.bin"
-    return f"{int(telegram_user_id)}/{clean_name}"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    folder_id = uuid.uuid4().hex[:6]
+    object_id = uuid.uuid4().hex[:12]
+    return f"users/tg_{int(telegram_user_id)}/telegram/{stamp}-{folder_id}/telegram_{object_id}_{clean_name}"
 
 
 def _content_disposition(filename: str) -> str:
@@ -170,7 +175,9 @@ class _ProgressStream:
 
     def read(self, size: int = -1) -> bytes:
         self._check()
-        chunk = self._file.read(CHUNK_SIZE if size is None or size < 0 else size)
+        if size == 0:
+            return b""
+        chunk = self._file.read(CHUNK_SIZE if size is None or size < 0 else max(size, CHUNK_SIZE))
         if chunk:
             self._sent += len(chunk)
             if self._on_progress:

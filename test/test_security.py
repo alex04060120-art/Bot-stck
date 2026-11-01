@@ -451,7 +451,7 @@ class ToDusS3StorageTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertTrue(link.startswith(
-            "https://stickers.todus.cu/td/public/7935796405/"
+            "https://stickers.todus.cu/td/public/users/tg_7935796405/telegram/"
         ))
         self.assertRegex(link, r"/telegram_[a-f0-9]{12}_clip\.mp4$")
         self.assertEqual(size, len(b"fake-video"))

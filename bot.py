@@ -21,6 +21,7 @@ import textwrap
 import time
 import shutil
 import zipfile
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.message import Message
@@ -1766,15 +1767,21 @@ def renew_prematurely_deleted_cloud_files(application: Application | None = None
                     changed = True
                     log.info("✅ Cloud Guardian: Archivo renovado con éxito para usuario %s. Nuevos URLs: %s", user_id, new_urls)
                     if application and entry.get("chat_id") and entry.get("message_id"):
-                        asyncio.create_task(
-                            _silently_update_message_keyboard(
-                                application,
-                                entry["chat_id"],
-                                entry["message_id"],
-                                entry.get("task_id", ""),
-                                new_urls,
-                            )
-                        )
+                        try:
+                            loop = application.bot_data.get("event_loop")
+                            if loop and loop.is_running():
+                                asyncio.run_coroutine_threadsafe(
+                                    _silently_update_message_keyboard(
+                                        application,
+                                        entry["chat_id"],
+                                        entry["message_id"],
+                                        entry.get("task_id", ""),
+                                        new_urls,
+                                    ),
+                                    loop,
+                                )
+                        except Exception as exc:
+                            log.debug("No se pudo actualizar el teclado renovado: %s", exc)
 
     if changed:
         _save_json(HISTORY_DATA_FILE, data)
@@ -2098,7 +2105,9 @@ class _ToDusProgressStream:
             raise RuntimeError("Se agotó el tiempo máximo de subida a ToDus S3.")
     def read(self, size: int = -1) -> bytes:
         self._check()
-        chunk = self._file.read(64 * 1024 if size is None or size < 0 else size)
+        if size == 0:
+            return b""
+        chunk = self._file.read(4 * MIB if size is None or size < 0 else max(size, 4 * MIB))
         if chunk:
             self._sent += len(chunk)
             if self._on_progress:
@@ -2119,7 +2128,10 @@ class _ToDusProgressStream:
 def _build_todus_object_key(telegram_user_id: int, filename: str) -> str:
     actual_name = Path(filename or "download.bin").name
     clean_name = "".join(c for c in actual_name if ord(c) >= 32).strip() or "download.bin"
-    return f"{int(telegram_user_id)}/{clean_name}"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    folder_id = uuid.uuid4().hex[:6]
+    object_id = uuid.uuid4().hex[:12]
+    return f"users/tg_{int(telegram_user_id)}/telegram/{stamp}-{folder_id}/telegram_{object_id}_{clean_name}"
 
 
 def upload_to_todus_s3(path: Path, download_name: str, telegram_user_id: int, on_progress=None, timeout_seconds=86400, is_cancelled=None):
@@ -5144,6 +5156,7 @@ def schedule_data_backup(application: Application, reason: str = "cambio de dato
 
 
 async def post_init(application: Application) -> None:
+    application.bot_data["event_loop"] = asyncio.get_running_loop()
     # Garantizar archivo de cookies de YouTube en disco
     try:
         from platform_downloads import get_youtube_cookies_path
