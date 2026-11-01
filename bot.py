@@ -5235,10 +5235,40 @@ async def post_init(application: Application) -> None:
     if not api_id or not api_hash:
         log.error("MTProto desactivado: faltan las credenciales integradas en bot.py")
     else:
+        mtproto_client = None
+        session_path = TELEGRAM_AUTH_DIR / "mtproto_bot.session"
+        recovery_session_path = TELEGRAM_AUTH_DIR / "mtproto_bot_recovery.session"
         try:
-            session_path = TELEGRAM_AUTH_DIR / "mtproto_bot.session"
-            mtproto_client = TelegramClient(str(session_path), api_id, api_hash)
-            await mtproto_client.start(bot_token=TELEGRAM_BOT_TOKEN)
+            # Render puede conservar una sesión SQLite incompleta después de
+            # una interrupción. Primero reutilizamos la sesión normal y, si
+            # falla, reintentamos con otra sesión limpia sin depender de
+            # variables de entorno.
+            last_error = None
+            for attempt, candidate in enumerate((session_path, recovery_session_path), start=1):
+                candidate_client = TelegramClient(str(candidate), api_id, api_hash)
+                try:
+                    await asyncio.wait_for(
+                        candidate_client.start(bot_token=TELEGRAM_BOT_TOKEN),
+                        timeout=90,
+                    )
+                    mtproto_client = candidate_client
+                    log.info("Sesión MTProto iniciada en %s (intento %d)", candidate, attempt)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    log.warning(
+                        "No se pudo iniciar la sesión MTProto %s (intento %d/2): %s",
+                        candidate,
+                        attempt,
+                        exc,
+                    )
+                    try:
+                        if candidate_client.is_connected():
+                            await candidate_client.disconnect()
+                    except Exception:
+                        pass
+            if mtproto_client is None:
+                raise RuntimeError(f"fallaron las dos sesiones MTProto: {last_error}")
             application.bot_data["mtproto_client"] = mtproto_client
 
             async def cache_media_update(event):
@@ -5256,7 +5286,7 @@ async def post_init(application: Application) -> None:
                 pass
             log.info("MTProto listo con API ID %s", api_id)
         except Exception as exc:
-            log.warning("MTProto no iniciado: %s (el bot continuará operando vía Bot API)", exc)
+            log.exception("MTProto no iniciado tras reintentos: %s (el bot continuará operando vía Bot API)", exc)
 
 
 async def post_shutdown(application: Application) -> None:
