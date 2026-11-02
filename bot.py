@@ -2801,7 +2801,12 @@ async def upload_to_todus_s3_with_progress(
     reply_markup=None, is_cancelled=None,
 ) -> tuple[str, int]:
     loop = asyncio.get_running_loop()
-    state = {"last_time": 0.0, "last_bucket": -1, "last_sent": 0, "start_time": time.monotonic()}
+    state = {
+        "last_update": 0.0,
+        "last_sent": 0,
+        "last_sample_time": time.monotonic(),
+        "start_time": time.monotonic(),
+    }
 
     async def edit_progress(sent, total, speed, eta):
         try:
@@ -2821,17 +2826,20 @@ async def upload_to_todus_s3_with_progress(
         await edit_progress(0, initial_total, 0, None)
 
     def on_progress(sent, total):
-        percent = 100 if total <= 0 else min(100, int(sent * 100 / total))
         now = time.monotonic()
         if sent < state["last_sent"]:
-            state["last_time"], state["last_bucket"], state["start_time"] = 0.0, -1, now
-        state["last_sent"] = sent
-        bucket = percent // 5
-        if percent < 100 and (bucket <= state["last_bucket"] or now - state["last_time"] < 1.5):
+            state["last_update"], state["last_sent"], state["last_sample_time"], state["start_time"] = 0.0, 0, now, now
+        if total > 0 and sent < total and now - state["last_update"] < 1.0:
             return
-        state["last_time"], state["last_bucket"] = now, bucket
-        elapsed = max(0.1, now - state["start_time"])
-        speed = sent / MIB / elapsed
+        sample_elapsed = max(0.1, now - state["last_sample_time"])
+        sample_bytes = max(0, sent - state["last_sent"])
+        speed = sample_bytes / MIB / sample_elapsed
+        if sample_bytes == 0:
+            elapsed = max(0.1, now - state["start_time"])
+            speed = sent / MIB / elapsed
+        state["last_update"] = now
+        state["last_sent"] = sent
+        state["last_sample_time"] = now
         eta = (total - sent) / (speed * MIB) if speed > 0 else None
         try:
             asyncio.run_coroutine_threadsafe(edit_progress(sent, total, speed, eta), loop)
@@ -3393,20 +3401,29 @@ async def process_task(job: TransferTask, application: Application) -> None:
         await _edit_task_status(job, task_detail_text(job))
         return
     temp_path = Path(job.temp_path) if job.temp_path else None
-    progress_state = {"started": time.monotonic(), "last": 0.0, "last_bucket": -1}
+    progress_state = {
+        "started": time.monotonic(),
+        "last_update": 0.0,
+        "last_sample_time": time.monotonic(),
+        "last_sample_bytes": 0,
+    }
 
     async def report_download_progress(received, total):
         now = time.monotonic()
         percent = min(100, int(received * 100 / total)) if total else 0
-        bucket = percent // 5
-        if (total and percent < 100 and bucket <= progress_state["last_bucket"]) or now - progress_state["last"] < 1.5:
+        if now - progress_state["last_update"] < 1.0 and (not total or percent < 100):
             return
-        if progress_state["last"] == 0:
+        if progress_state["last_update"] == 0:
             progress_state["started"] = now
-        progress_state["last"] = now
-        progress_state["last_bucket"] = bucket
-        elapsed = max(0.1, now - progress_state["started"])
-        speed = received / MIB / elapsed
+        sample_elapsed = max(0.1, now - progress_state["last_sample_time"])
+        sample_bytes = max(0, received - progress_state["last_sample_bytes"])
+        speed = sample_bytes / MIB / sample_elapsed
+        if sample_bytes == 0:
+            elapsed = max(0.1, now - progress_state["started"])
+            speed = received / MIB / elapsed
+        progress_state["last_update"] = now
+        progress_state["last_sample_time"] = now
+        progress_state["last_sample_bytes"] = received
         eta = (total - received) / (speed * MIB) if total and speed > 0 else None
         curr_fname = job.filename or ""
         if not curr_fname and job.source_message:
