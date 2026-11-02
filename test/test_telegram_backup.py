@@ -188,6 +188,32 @@ class TelegramBackupFlowTests(unittest.IsolatedAsyncioTestCase):
                 '{"restored":true}',
             )
 
+    async def test_restore_repairs_corrupt_local_state_but_keeps_local_session(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source_layout = make_layout(Path(temp) / "source")
+            source_layout.state_files["user_plans.json"].write_text('{"restored":true}', encoding="utf-8")
+            encrypted, _snapshot, _size, _count = build_encrypted_backup(source_layout, TOKEN)
+
+            bot = FakeTelegramBackupBot()
+            uploaded = await bot.send_document(-100123, io.BytesIO(encrypted), BACKUP_FILENAME, "backup")
+            bot.pinned = uploaded
+
+            target_layout = make_layout(Path(temp) / "target")
+            target_layout.state_files["user_plans.json"].write_text('{"broken":', encoding="utf-8")
+            local_session = target_layout.auth_dir / "mtproto_bot.session"
+            local_session.write_bytes(b"keep-local-session")
+
+            restored, _restored_bytes = await restore_from_telegram(
+                bot, TOKEN, "-100123", target_layout
+            )
+
+            self.assertEqual(restored, 1)
+            self.assertEqual(
+                target_layout.state_files["user_plans.json"].read_text(encoding="utf-8"),
+                '{"restored":true}',
+            )
+            self.assertEqual(local_session.read_bytes(), b"keep-local-session")
+
     def test_empty_auth_folder_is_valid_if_application_state_exists(self):
         with tempfile.TemporaryDirectory() as temp:
             layout = make_layout(Path(temp))

@@ -446,6 +446,21 @@ def restore_snapshot(snapshot: dict[str, Any], layout: BackupLayout) -> tuple[in
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.is_symlink():
                 continue
+            # Los JSON son el estado persistente del bot. Se reemplazan de
+            # forma atómica para reparar archivos truncados o incompletos;
+            # las sesiones de Telegram (kind=auth) siguen siendo protegidas
+            # más abajo y nunca se sobrescriben.
+            temporary = target.with_suffix(target.suffix + ".restore.tmp")
+            try:
+                temporary.write_bytes(content)
+                os.chmod(temporary, 0o600)
+                temporary.replace(target)
+            except OSError as exc:
+                temporary.unlink(missing_ok=True)
+                raise BackupError("No se pudo restaurar un archivo de estado.") from exc
+            restored += 1
+            restored_bytes += len(content)
+            continue
         else:
             relative = _validate_relative_path(entry["path"])
             target = _secure_target(layout.auth_dir, PurePosixPath(*relative.parts[1:]))

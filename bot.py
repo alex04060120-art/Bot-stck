@@ -5419,16 +5419,19 @@ async def post_init(application: Application) -> None:
     # Si los archivos de usuarios o planes no existen todavía en el nuevo hosting,
     # el bot descarga automáticamente el respaldo de Telegram antes de empezar a operar.
     if backup_chat_id:
-        has_local_data = False
-        if Path(PLAN_DATA_FILE).exists() and Path(USERS_DATA_FILE).exists():
+        missing_or_invalid_state = []
+        for key, state_path in backup_layout.state_files.items():
             try:
-                ud = _load_json(USERS_DATA_FILE)
-                if isinstance(ud, dict) and len(ud.get("users", {})) > 0:
-                    has_local_data = True
-            except Exception:
-                has_local_data = False
-        if not has_local_data:
-            log.info("📢 No se detectó base de datos local: iniciando restauración automática de Telegram...")
+                with Path(state_path).open("r", encoding="utf-8") as state_file:
+                    if not isinstance(json.load(state_file), dict):
+                        raise ValueError("el estado no es un objeto JSON")
+            except (OSError, ValueError, json.JSONDecodeError):
+                missing_or_invalid_state.append(key)
+        if missing_or_invalid_state:
+            log.info(
+                "📢 Estado local incompleto (%s): restaurando desde el canal de respaldo...",
+                ", ".join(missing_or_invalid_state),
+            )
             try:
                 restored, b_count = await restore_from_telegram(
                     application.bot,
