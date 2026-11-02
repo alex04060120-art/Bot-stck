@@ -50,6 +50,12 @@ from telegram.ext import (
     filters,
 )
 from telethon import TelegramClient, events
+from telegram_backup import (
+    BackupLayout as SecureBackupLayout,
+    backup_to_telegram as secure_backup_to_telegram,
+    periodic_backup as secure_periodic_backup,
+    restore_from_telegram as secure_restore_from_telegram,
+)
 try:
     from platform_downloads import is_supported_platform_url, download_platform_video
 except ImportError:
@@ -398,7 +404,7 @@ class BackupLayout:
 
 
 def telegram_backup_layout() -> BackupLayout:
-    return BackupLayout.from_paths(
+    return SecureBackupLayout.from_paths(
         DATA_DIR,
         TELEGRAM_AUTH_DIR,
         {
@@ -407,7 +413,6 @@ def telegram_backup_layout() -> BackupLayout:
             "task_history.json": HISTORY_DATA_FILE,
             "users.json": USERS_DATA_FILE,
             "admin_audit.json": ADMIN_AUDIT_FILE,
-            "premium.sqlite3": DATABASE_PATH,
         },
     )
 
@@ -639,6 +644,14 @@ async def periodic_backup(
             break
         except Exception:
             pass
+
+
+# El flujo activo usa la implementación cifrada y validada de telegram_backup.py.
+# Estas asignaciones mantienen compatibles los comandos y tareas existentes.
+BackupLayout = SecureBackupLayout
+backup_to_telegram = secure_backup_to_telegram
+restore_from_telegram = secure_restore_from_telegram
+periodic_backup = secure_periodic_backup
 
 
 def _load_json(path: str) -> dict:
@@ -5305,15 +5318,21 @@ def schedule_data_backup(application: Application, reason: str = "cambio de dato
         lock = application.bot_data.get("telegram_backup_lock") or asyncio.Lock()
         async with lock:
             try:
-                await backup_to_telegram(
+                result = await backup_to_telegram(
                     application.bot,
                     getattr(application.bot, "token", ""),
                     backup_chat_id,
                     layout,
                     logger=log,
                 )
-            except Exception:
-                pass
+                application.bot_data["telegram_backup_last_result"] = bool(result)
+                application.bot_data["telegram_backup_last_reason"] = reason
+                if not result:
+                    log.error("El respaldo no confirmó publicación (%s).", reason)
+            except Exception as exc:
+                application.bot_data["telegram_backup_last_result"] = False
+                application.bot_data["telegram_backup_last_error"] = type(exc).__name__
+                log.exception("Error guardando respaldo (%s): %s", reason, exc)
     application.bot_data["telegram_backup_pending_task"] = asyncio.create_task(run())
 
 
@@ -5463,8 +5482,35 @@ async def post_init(application: Application) -> None:
         except Exception as exc:
             log.exception("MTProto no iniciado tras reintentos: %s (el bot continuará operando vía Bot API)", exc)
 
+    # Confirmar al arrancar que el estado actual quedó guardado en Telegram.
+    # La rutina cifra, publica, descarga de vuelta y valida la copia antes de
+    # considerarla exitosa.
+    if backup_chat_id:
+        try:
+            async with application.bot_data["telegram_backup_lock"]:
+                saved = await backup_to_telegram(
+                    application.bot,
+                    getattr(application.bot, "token", ""),
+                    backup_chat_id,
+                    backup_layout,
+                    logger=log,
+                )
+            application.bot_data["telegram_backup_last_result"] = bool(saved)
+            if not saved:
+                log.error("El respaldo inicial no confirmó publicación.")
+        except Exception as exc:
+            application.bot_data["telegram_backup_last_result"] = False
+            application.bot_data["telegram_backup_last_error"] = type(exc).__name__
+            log.exception("No se pudo guardar el respaldo inicial: %s", exc)
+
 
 async def post_shutdown(application: Application) -> None:
+    pending_backup = application.bot_data.get("telegram_backup_pending_task")
+    if pending_backup and not pending_backup.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(pending_backup), timeout=30)
+        except Exception:
+            pending_backup.cancel()
     for task_name in ("quota_reset_task", "cloud_expiration_task", "telegram_backup_task"):
         task = application.bot_data.get(task_name)
         if task:
