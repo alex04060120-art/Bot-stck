@@ -89,8 +89,8 @@ MAX_FILE_MB_FREE = 2048       # 2048 MB = 2 GB para usuarios Gratis
 MAX_CONCURRENT_UPLOADS = 8
 LOG_LEVEL = "INFO"
 WATCHDOG_ENABLED = os.getenv("BOT_WATCHDOG_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
-WATCHDOG_INTERVAL_SECONDS = max(5, int(os.getenv("BOT_WATCHDOG_INTERVAL_SECONDS", "10")))
-WATCHDOG_TIMEOUT_SECONDS = max(30, int(os.getenv("BOT_WATCHDOG_TIMEOUT_SECONDS", "90")))
+WATCHDOG_INTERVAL_SECONDS = max(30, int(os.getenv("BOT_WATCHDOG_INTERVAL_SECONDS", "60")))
+WATCHDOG_TIMEOUT_SECONDS = max(90, int(os.getenv("BOT_WATCHDOG_TIMEOUT_SECONDS", "120")))
 GROUP_JOIN_URL = "https://t.me/videogameplay0406"
 DATABASE_PATH = "./data/premium.sqlite3"
 CHANNEL_JOIN_URL = "https://t.me/gg_no_root"
