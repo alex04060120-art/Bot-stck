@@ -386,6 +386,7 @@ REFERRAL_START_BALANCE = 5
 REFERRAL_REWARD = 10
 USAGE_DATA_FILE = str(DATA_DIR / "daily_usage.json")
 HISTORY_DATA_FILE = str(DATA_DIR / "task_history.json")
+TASK_QUEUE_FILE = str(DATA_DIR / "task_queue.json")
 USERS_DATA_FILE = str(DATA_DIR / "users.json")
 ADMIN_AUDIT_FILE = str(DATA_DIR / "admin_audit.json")
 TELEGRAM_AUTH_DIR = DATA_DIR / "telegram_auth"
@@ -417,6 +418,7 @@ def telegram_backup_layout() -> BackupLayout:
             "task_history.json": HISTORY_DATA_FILE,
             "users.json": USERS_DATA_FILE,
             "admin_audit.json": ADMIN_AUDIT_FILE,
+            "task_queue.json": TASK_QUEUE_FILE,
         },
     )
 
@@ -2006,11 +2008,33 @@ class TransferTask:
         self.txt_generating = False
         self.created_at = time.time()
         self.updated_at = time.time()
+        self.processing_task = None
     def set_state(self, state: str) -> None:
         self.state = state
         self.updated_at = time.time()
     def is_active(self) -> bool:
         return self.state in {"downloading", "uploading"}
+
+    def checkpoint(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "user_id": self.user_id,
+            "chat_id": self.chat_id,
+            "source_kind": self.source_kind,
+            "source_url": self.source_url,
+            "username": self.username,
+            "display_name": self.display_name,
+            "filename": self.filename,
+            "size": self.size,
+            "temp_path": self.temp_path,
+            "download_complete": self.download_complete,
+            "part_paths": self.part_paths,
+            "part_urls": {str(k): v for k, v in self.part_urls.items()},
+            "state": "queued" if self.state in {"downloading", "uploading"} else self.state,
+            "error": self.error,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
 
 class FairTaskQueue:
     """Gestor de colas 100% INDEPENDIENTES por cada usuario con balanceo equitativo (Fair-Share).
@@ -2024,6 +2048,43 @@ class FairTaskQueue:
         self.default_concurrent_per_user = max_concurrent_per_user
         self._lock = asyncio.Lock()
         self._notify_event = asyncio.Event()
+        self.persistence_path = TASK_QUEUE_FILE
+
+    def save_checkpoint(self) -> None:
+        pending = [
+            job.checkpoint()
+            for job in self.jobs.values()
+            if job.state not in {"done", "cancelled"}
+        ]
+        _save_json(self.persistence_path, {"tasks": pending, "saved_at": datetime.now(timezone.utc).isoformat()})
+
+    def restore_checkpoints(self) -> list[TransferTask]:
+        raw = _load_json(self.persistence_path)
+        restored = []
+        for item in raw.get("tasks", []) if isinstance(raw, dict) else []:
+            if not isinstance(item, dict) or item.get("source_kind") != "url":
+                continue
+            try:
+                job = TransferTask(
+                    int(item["user_id"]), int(item.get("chat_id") or item["user_id"]),
+                    "url", source_url=item.get("source_url"),
+                    username=item.get("username"), display_name=item.get("display_name"),
+                )
+                job.task_id = str(item.get("task_id") or job.task_id)
+                job.filename = item.get("filename")
+                job.size = int(item.get("size") or 0)
+                job.temp_path = item.get("temp_path")
+                job.download_complete = bool(item.get("download_complete"))
+                job.part_paths = [str(p) for p in item.get("part_paths", []) if p]
+                job.part_urls = {int(k): str(v) for k, v in (item.get("part_urls") or {}).items()}
+                job.state = "queued"
+                job.error = item.get("error")
+                job.created_at = float(item.get("created_at") or time.time())
+                job.updated_at = float(item.get("updated_at") or time.time())
+                restored.append(job)
+            except (TypeError, ValueError, KeyError):
+                continue
+        return restored
 
     def get_user_concurrency(self, user_id: int) -> int:
         if is_owner(user_id):
@@ -2046,6 +2107,7 @@ class FairTaskQueue:
                 return False
             self.jobs[job.task_id] = job
             self.user_queues[job.user_id].append(job)
+            self.save_checkpoint()
             self._notify_event.set()
             return True
 
@@ -2088,7 +2150,11 @@ class FairTaskQueue:
             if job.state == "queued":
                 job.set_state("paused")
                 self.user_queues[user_id] = deque(j for j in self.user_queues[user_id] if j.task_id != task_id)
+            elif job.processing_task and not job.processing_task.done():
+                job.set_state("paused")
+                job.processing_task.cancel()
             self.task_finished(job)
+            self.save_checkpoint()
             return True
 
     async def requeue(self, job):
@@ -2098,6 +2164,7 @@ class FairTaskQueue:
             job.set_state("queued")
             if job not in self.user_queues[job.user_id]:
                 self.user_queues[job.user_id].append(job)
+            self.save_checkpoint()
             self._notify_event.set()
             return True
 
@@ -2110,6 +2177,7 @@ class FairTaskQueue:
             if user_id in self.user_queues:
                 self.user_queues[user_id] = deque(j for j in self.user_queues[user_id] if j.task_id != task_id)
             self.task_finished(job)
+            self.save_checkpoint()
             return job
 
     def for_user(self, user_id, states=None):
@@ -3413,6 +3481,7 @@ async def enqueue_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE, *
 
 
 async def process_task(job: TransferTask, application: Application) -> None:
+    manager: FairTaskQueue = application.bot_data["task_queue"]
     if job.cancel_requested:
         job.set_state("paused")
         await _edit_task_status(job, task_detail_text(job))
@@ -3460,6 +3529,7 @@ async def process_task(job: TransferTask, application: Application) -> None:
             pass
 
     try:
+        manager.save_checkpoint()
         max_bytes = 4096 * MIB
         if temp_path is None or not temp_path.exists() or not job.download_complete:
             job.set_state("downloading")
@@ -3534,6 +3604,7 @@ async def process_task(job: TransferTask, application: Application) -> None:
                 )
             job.temp_path, job.filename, job.size = str(temp_path), filename, size
             job.download_complete = True
+            manager.save_checkpoint()
         else:
             filename, size = job.filename or temp_path.name, job.size or temp_path.stat().st_size
 
@@ -3597,6 +3668,7 @@ async def process_task(job: TransferTask, application: Application) -> None:
                 is_cancelled=lambda: job.cancel_requested,
             )
             job.part_urls[index] = link
+            manager.save_checkpoint()
             if job.cancel_requested:
                 job.set_state("paused")
                 await _edit_task_status(job, task_detail_text(job))
@@ -3720,13 +3792,21 @@ async def task_worker(application: Application) -> None:
     manager: FairTaskQueue = application.bot_data["task_queue"]
     while True:
         job = await manager.take()
+        job.processing_task = asyncio.current_task()
         try:
             await process_task(job, application)
         except asyncio.CancelledError:
-            break
+            if job.cancel_requested:
+                job.set_state("paused")
+                manager.save_checkpoint()
+                await _edit_task_status(job, task_detail_text(job))
+                continue
+            raise
         except Exception as exc:
             log.exception(f"Error procesando tarea en worker: {exc}")
         finally:
+            job.processing_task = None
+            manager.save_checkpoint()
             manager.task_finished(job)
 
 def render_queue_view(user_id: int, manager: FairTaskQueue) -> tuple[str, InlineKeyboardMarkup]:
@@ -5373,6 +5453,30 @@ def stop_watchdog(application: Application) -> None:
         heartbeat_task.cancel()
 
 
+async def restore_persisted_queue(application: Application) -> None:
+    manager = application.bot_data.get("task_queue")
+    if not manager:
+        return
+    restored = manager.restore_checkpoints()
+    for job in restored:
+        try:
+            job.status_message = await application.bot.send_message(
+                chat_id=job.chat_id,
+                text=card("🔄 ᴛᴀʀᴇᴀ ʀᴇѕᴛᴀᴜʀᴀᴅᴀ", [
+                    job.filename or job.source_url or "Descarga",
+                    "Continuando automáticamente desde el último checkpoint.",
+                ]),
+            )
+            manager.jobs[job.task_id] = job
+            manager.user_queues[job.user_id].append(job)
+        except Exception as exc:
+            log.warning("No se pudo restaurar la tarea %s: %s", job.task_id, type(exc).__name__)
+    if restored:
+        manager.save_checkpoint()
+        manager._notify_event.set()
+        log.info("Cola restaurada: %d tarea(s) URL", len(restored))
+
+
 def schedule_data_backup(application: Application, reason: str = "cambio de datos") -> None:
     backup_chat_id = configured_backup_chat_id()
     layout = application.bot_data.get("telegram_backup_layout")
@@ -5482,6 +5586,7 @@ async def post_init(application: Application) -> None:
         BotCommand("restore", sc("restaurar datos desde respaldo")),
     ])
 
+    await restore_persisted_queue(application)
     if application.bot_data.get("task_queue"):
         application.bot_data["task_workers"] = [
             asyncio.create_task(task_worker(application)) for _ in range(MAX_CONCURRENT_UPLOADS)
@@ -5574,6 +5679,9 @@ async def post_init(application: Application) -> None:
 
 async def post_shutdown(application: Application) -> None:
     stop_watchdog(application)
+    queue_manager = application.bot_data.get("task_queue")
+    if queue_manager:
+        queue_manager.save_checkpoint()
     pending_backup = application.bot_data.get("telegram_backup_pending_task")
     if pending_backup and not pending_backup.done():
         try:

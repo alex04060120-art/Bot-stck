@@ -30,7 +30,7 @@ NONCE_BYTES = 12
 # Bot API alojada: getFile solo permite descargar hasta 20 MiB.
 MAX_BACKUP_DOCUMENT_BYTES = 20 * 1024 * 1024
 MAX_SNAPSHOT_JSON_BYTES = 32 * 1024 * 1024
-STATE_KEYS = ("user_plans.json", "daily_usage.json", "task_history.json", "users.json", "admin_audit.json")
+STATE_KEYS = ("user_plans.json", "daily_usage.json", "task_history.json", "users.json", "admin_audit.json", "task_queue.json")
 OLD_BACKUP_DIR_NAMES = {"backup", "backups", "old_backup", "old_backups", "archive", "archives"}
 
 
