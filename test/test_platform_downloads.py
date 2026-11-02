@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, Mock, patch
 
 import yt_dlp
 
-from bot import download_to_temp, filename_from_response, normalize_apk_filename, validate_downloaded_file
+from bot import (
+    download_to_temp,
+    filename_from_response,
+    normalize_apk_filename,
+    normalize_media_filename,
+    validate_downloaded_file,
+)
 from platform_downloads import (
     _check_public_dns_target,
     download_platform_video,
@@ -163,6 +169,23 @@ class ResponseFilenameTests(unittest.TestCase):
             ),
             "123.apk",
         )
+
+    def test_replaces_jk_with_mime_extension(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "download.part"
+            path.write_bytes(b"video")
+            self.assertEqual(
+                normalize_media_filename(path, "shared.JK", "video/mp4"),
+                "shared.mp4",
+            )
+
+    def test_replaces_jk_with_apk_when_content_is_an_apk(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "download.part"
+            with ZipFile(path, "w") as package:
+                package.writestr("AndroidManifest.xml", b"binary-manifest")
+                package.writestr("classes.dex", b"dex\n035\0")
+            self.assertEqual(normalize_media_filename(path, "shared.JK"), "shared.apk")
 
     def test_normalizes_real_apk_served_as_zip(self):
         with TemporaryDirectory() as directory:

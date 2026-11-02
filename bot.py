@@ -2327,6 +2327,67 @@ def filename_from_response(headers, final_url: str) -> str:
     return filename
 
 
+def normalize_media_filename(path: Path, filename: str | None, content_type: str | None = None,
+                            fallback: str = "download.bin") -> str:
+    """Corrige nombres genéricos como .JK usando MIME y firma del archivo."""
+    safe_name = clean_filename(filename, fallback)
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in {"", ".jk"}:
+        return safe_name
+
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    extension = ".apk" if mime == "application/vnd.android.package-archive" else None
+    if extension is None and mime:
+        extension = mimetypes.guess_extension(mime)
+    if extension and not re.fullmatch(r"\.[a-zA-Z0-9]{1,16}", extension):
+        extension = None
+
+    if extension is None:
+        try:
+            header = path.read_bytes()[:4096]
+            if header.startswith(b"%PDF-"):
+                extension = ".pdf"
+            elif header.startswith(b"\x89PNG\r\n\x1a\n"):
+                extension = ".png"
+            elif header.startswith(b"\xff\xd8\xff"):
+                extension = ".jpg"
+            elif header.startswith((b"GIF87a", b"GIF89a")):
+                extension = ".gif"
+            elif header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+                extension = ".webp"
+            elif header.startswith(b"RIFF") and header[8:12] == b"WAVE":
+                extension = ".wav"
+            elif header.startswith(b"ID3") or (len(header) > 1 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0):
+                extension = ".mp3"
+            elif header.startswith(b"OggS"):
+                extension = ".ogg"
+            elif header.startswith(b"fLaC"):
+                extension = ".flac"
+            elif header.startswith(b"\x1a\x45\xdf\xa3"):
+                extension = ".mkv"
+            elif len(header) >= 12 and header[4:8] == b"ftyp":
+                extension = ".mp4"
+            elif header.startswith(b"PK\x03\x04"):
+                with zipfile.ZipFile(path) as package:
+                    names = set(package.namelist())
+                    extension = ".apk" if (
+                        "AndroidManifest.xml" in names and "classes.dex" in names and package.testzip() is None
+                    ) else ".zip"
+            elif header.startswith(b"Rar!\x1a\x07"):
+                extension = ".rar"
+            elif header.startswith(b"7z\xbc\xaf\x27\x1c"):
+                extension = ".7z"
+        except (OSError, zipfile.BadZipFile):
+            pass
+
+    if extension is None:
+        fallback_suffix = Path(fallback).suffix.lower()
+        extension = fallback_suffix if fallback_suffix not in {"", ".jk"} else ".bin"
+
+    stem = Path(safe_name).stem or Path(fallback).stem or "download"
+    return clean_filename(f"{stem}{extension.lower()}", fallback)
+
+
 def validate_downloaded_file(path: Path, filename: str) -> None:
     if Path(filename).suffix.lower() != ".apk":
         return
@@ -2363,7 +2424,7 @@ def normalize_apk_filename(path: Path, filename: str) -> str:
                 or suffix in {".xapk", ".apks"}
             ):
                 raise ValueError(
-                    "El enlace contiene un pete dividido (XAPK/APKS), no un APK único instalable."
+                    "El enlace contiene un paquete dividido (XAPK/APKS), no un APK único instalable."
                 )
             is_apk = (
                 "AndroidManifest.xml" in names
@@ -2431,6 +2492,7 @@ async def download_to_temp(session, original_url, progress_callback=None, max_by
                 if total == 0:
                     raise ValueError("Archivo vacío")
                 filename = filename_from_response(response.headers, str(response.url))
+                filename = normalize_media_filename(path, filename, content_type)
                 filename = normalize_apk_filename(path, filename)
                 return path, filename, total
         raise ValueError("No se pudo seguir el enlace")
@@ -2574,7 +2636,9 @@ async def download_telegram_media(message, mtproto_client=None, progress_callbac
         actual_size = path.stat().st_size
         if actual_size == 0:
             raise ValueError("El archivo recibido está vacío.")
+        mime_type = (getattr(media, "mime_type", "") or "").split(";", 1)[0].lower()
         safe_filename = normalize_telegram_generated_name(filename, fallback)
+        safe_filename = normalize_media_filename(path, safe_filename, mime_type, fallback)
         safe_filename = normalize_apk_filename(path, safe_filename)
         validate_downloaded_file(path, safe_filename)
         return path, safe_filename, actual_size
