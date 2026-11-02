@@ -16,6 +16,7 @@ import mimetypes
 import os
 import re
 import socket
+import sys
 import tempfile
 import textwrap
 import time
@@ -5329,10 +5330,14 @@ def _watchdog_guard(application: Application, stop_event: threading.Event) -> No
         if heartbeat and time.monotonic() - heartbeat > WATCHDOG_TIMEOUT_SECONDS:
             log.critical(
                 "Watchdog: el event loop no responde desde hace %.1f segundos; "
-                "se termina el proceso para que Render/Docker lo reinicie.",
+                "se reemplaza el proceso para recuperarlo automáticamente.",
                 time.monotonic() - heartbeat,
             )
-            os._exit(1)
+            try:
+                os.execv(sys.executable, [sys.executable, *sys.argv])
+            except Exception:
+                log.exception("Watchdog: no se pudo reemplazar el proceso; se fuerza el cierre.")
+                os._exit(1)
 
 
 def start_watchdog(application: Application) -> None:
@@ -5632,7 +5637,12 @@ def main() -> None:
     application.add_handler(MessageHandler(media_filters, handle_media))
     threading.Thread(target=start_api_server, daemon=True).start()
     log.info("JK Bot ToDus completamente inicializado y listo para correr")
-    application.run_polling(drop_pending_updates=False)
+    try:
+        application.run_polling(drop_pending_updates=False)
+    except Exception:
+        log.exception("El polling terminó inesperadamente; el proceso se reemplazará en 5 segundos.")
+        time.sleep(5)
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 if __name__ == "__main__":
