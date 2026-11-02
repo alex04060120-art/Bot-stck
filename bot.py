@@ -764,18 +764,7 @@ class JKBotApiHandler(BaseHTTPRequestHandler):
             uid_str = (qs.get("user_id") or [""])[0].strip()
             files_list = []
             try:
-                history_data = _load_json(TASK_HISTORY_FILE)
-                if isinstance(history_data, list):
-                    for task in history_data:
-                        if not uid_str or str(task.get("user_id")) == uid_str:
-                            files_list.append({
-                                "id": str(task.get("id", task.get("task_id", len(files_list)))),
-                                "file_name": task.get("filename", task.get("file_name", "Archivo ToDus")),
-                                "file_size": task.get("size", task.get("file_size", 0)),
-                                "download_url": task.get("url", task.get("download_url", "")),
-                                "created_at": task.get("created_at", task.get("timestamp", "Hoy")),
-                                "expires_at": task.get("expires_at", None)
-                            })
+                files_list = cloud_files_for_user(int(uid_str) if uid_str else None)
             except Exception:
                 pass
             self.send_response(200)
@@ -1610,6 +1599,48 @@ def all_task_history() -> dict[str, list[dict]]:
     return data if isinstance(data, dict) else {}
 
 
+def cloud_files_for_user(user_id: int | None = None) -> list[dict]:
+    """Normaliza el historial persistente al formato consumido por la app/nube."""
+    history = all_task_history()
+    entries: list[tuple[str, dict]] = []
+    if user_id is None:
+        for owner_id, owner_entries in history.items():
+            if isinstance(owner_entries, list):
+                entries.extend((str(owner_id), item) for item in owner_entries if isinstance(item, dict))
+    else:
+        owner_entries = history.get(str(user_id), [])
+        if isinstance(owner_entries, list):
+            entries = [(str(user_id), item) for item in owner_entries if isinstance(item, dict)]
+
+    files: list[dict] = []
+    for owner_id, entry in entries:
+        urls = entry.get("urls", [])
+        if isinstance(urls, str):
+            urls = [urls]
+        if not isinstance(urls, list):
+            urls = []
+        urls = [str(url) for url in urls if url]
+        if not urls:
+            continue
+        task_id = str(entry.get("task_id", entry.get("id", len(files))))
+        for index, url in enumerate(urls):
+            files.append({
+                "id": f"{task_id}:{index}",
+                "task_id": task_id,
+                "user_id": int(owner_id) if owner_id.isdigit() else owner_id,
+                "file_name": entry.get("filename", entry.get("file_name", "Archivo ToDus")),
+                "file_size": entry.get("size", entry.get("file_size", 0)),
+                "download_url": url,
+                "download_urls": urls,
+                "part": index + 1,
+                "parts": len(urls),
+                "created_at": entry.get("completed_at", entry.get("created_at", entry.get("timestamp", "Hoy"))),
+                "expires_at": entry.get("expires_at"),
+                "state": entry.get("state", "done"),
+            })
+    return files
+
+
 def expire_cloud_files() -> int:
     data = all_task_history()
     now = datetime.now(timezone.utc)
@@ -2016,6 +2047,10 @@ class FairTaskQueue:
                             if candidate.state in {"paused", "cancelled", "done", "error"}:
                                 continue
                             self.user_active[uid].add(candidate.task_id)
+                            # La tarea sale de la cola interna en este punto; marcarla
+                            # inmediatamente evita que la vista quede sin estado entre
+                            # take() y el inicio de process_task().
+                            candidate.set_state("downloading")
                             return candidate
                 self._notify_event.clear()
             await self._notify_event.wait()

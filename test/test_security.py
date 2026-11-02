@@ -32,6 +32,7 @@ from bot import (
     validate_url_syntax,
     result_keyboard,
     card,
+    cloud_files_for_user,
 )
 from task_queue import FairTaskQueue, TransferTask
 from todus_s3_storage import (
@@ -210,6 +211,32 @@ class TransferResultTests(unittest.TestCase):
         self.assertEqual([button.url for button in download_buttons], ["https://example.com/movie.mp4"])
 
 
+class CloudConsistencyTests(unittest.TestCase):
+    def test_cloud_files_reads_user_history_dict_and_all_parts(self):
+        with TemporaryDirectory() as directory:
+            old_path = telegram_bot.HISTORY_DATA_FILE
+            telegram_bot.HISTORY_DATA_FILE = str(Path(directory) / "task_history.json")
+            try:
+                telegram_bot._save_json(telegram_bot.HISTORY_DATA_FILE, {
+                    "123": [{
+                        "task_id": "task-a",
+                        "filename": "movie.mp4",
+                        "size": 100,
+                        "urls": ["https://cloud/a.mp4", "https://cloud/b.mp4"],
+                        "completed_at": "2026-11-02T10:00:00+00:00",
+                        "state": "done",
+                    }],
+                })
+                files = cloud_files_for_user(123)
+                self.assertEqual([item["download_url"] for item in files], [
+                    "https://cloud/a.mp4", "https://cloud/b.mp4",
+                ])
+                self.assertEqual(files[0]["parts"], 2)
+                self.assertEqual(files[0]["file_name"], "movie.mp4")
+            finally:
+                telegram_bot.HISTORY_DATA_FILE = old_path
+
+
 class ForwardedMediaTests(unittest.IsolatedAsyncioTestCase):
     async def test_large_forward_uses_mtproto_message_and_downloads_without_bot_api(self):
         class Media:
@@ -380,6 +407,15 @@ class URLValidationTests(unittest.TestCase):
 
 
 class FairTaskQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bot_queue_marks_taken_task_active_immediately(self):
+        queue = telegram_bot.FairTaskQueue()
+        job = telegram_bot.TransferTask(1, 1, "url", None, None)
+        await queue.enqueue(job, 5)
+        taken = await queue.take()
+        self.assertIs(taken, job)
+        self.assertEqual(job.state, "downloading")
+        self.assertEqual(len(queue.get_local_active(1)), 1)
+
     async def test_round_robin_selects_different_users_before_second_job(self):
         queue = FairTaskQueue()
         make_task = lambda user_id: TransferTask(user_id, user_id, "url", None, None)
