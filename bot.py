@@ -66,7 +66,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════
 TODUS_BASE_URL = "https://stickers.todus.cu/td/public"
 TMPDIR = "/tmp"
-TOKEN_BOT_DE_TELEGRAM = "8880272278:AAF8-gdzrIs1Fc-p8slP6T_Z45lI2K2ll9s"
+TOKEN_BOT_DE_TELEGRAM = "9020233515:AAHzKndWUqHeZDnWAMqjaKWfppcFUS8eBws"
 TELEGRAM_BOT_TOKEN = TOKEN_BOT_DE_TELEGRAM
 # Credenciales MTProto integradas para que los archivos grandes funcionen
 # aunque el despliegue no configure TELEGRAM_API_ID/TELEGRAM_API_HASH.
