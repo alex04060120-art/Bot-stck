@@ -88,6 +88,9 @@ MAX_FILE_MB_PREMIUM = 0       # 0 = Ilimitado para Premium
 MAX_FILE_MB_FREE = 2048       # 2048 MB = 2 GB para usuarios Gratis
 MAX_CONCURRENT_UPLOADS = 8
 LOG_LEVEL = "INFO"
+WATCHDOG_ENABLED = os.getenv("BOT_WATCHDOG_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+WATCHDOG_INTERVAL_SECONDS = max(5, int(os.getenv("BOT_WATCHDOG_INTERVAL_SECONDS", "10")))
+WATCHDOG_TIMEOUT_SECONDS = max(30, int(os.getenv("BOT_WATCHDOG_TIMEOUT_SECONDS", "90")))
 GROUP_JOIN_URL = "https://t.me/videogameplay0406"
 DATABASE_PATH = "./data/premium.sqlite3"
 CHANNEL_JOIN_URL = "https://t.me/gg_no_root"
@@ -5309,6 +5312,62 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await enqueue_transfer(update, context, source_kind="media")
 
 
+async def _watchdog_heartbeat(application: Application) -> None:
+    """Actualiza un latido desde el mismo event loop que atiende Telegram."""
+    try:
+        while True:
+            application.bot_data["watchdog_heartbeat"] = time.monotonic()
+            await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        return
+
+
+def _watchdog_guard(application: Application, stop_event: threading.Event) -> None:
+    """Vigila desde otro hilo si el event loop quedó bloqueado."""
+    while not stop_event.wait(WATCHDOG_INTERVAL_SECONDS):
+        heartbeat = application.bot_data.get("watchdog_heartbeat", 0.0)
+        if heartbeat and time.monotonic() - heartbeat > WATCHDOG_TIMEOUT_SECONDS:
+            log.critical(
+                "Watchdog: el event loop no responde desde hace %.1f segundos; "
+                "se termina el proceso para que Render/Docker lo reinicie.",
+                time.monotonic() - heartbeat,
+            )
+            os._exit(1)
+
+
+def start_watchdog(application: Application) -> None:
+    if not WATCHDOG_ENABLED or application.bot_data.get("watchdog_thread"):
+        return
+    stop_event = threading.Event()
+    application.bot_data["watchdog_stop"] = stop_event
+    application.bot_data["watchdog_heartbeat"] = time.monotonic()
+    application.bot_data["watchdog_heartbeat_task"] = asyncio.create_task(
+        _watchdog_heartbeat(application)
+    )
+    thread = threading.Thread(
+        target=_watchdog_guard,
+        args=(application, stop_event),
+        name="bot-watchdog",
+        daemon=True,
+    )
+    application.bot_data["watchdog_thread"] = thread
+    thread.start()
+    log.info(
+        "Watchdog activo: intervalo %ss, timeout %ss",
+        WATCHDOG_INTERVAL_SECONDS,
+        WATCHDOG_TIMEOUT_SECONDS,
+    )
+
+
+def stop_watchdog(application: Application) -> None:
+    stop_event = application.bot_data.get("watchdog_stop")
+    if stop_event:
+        stop_event.set()
+    heartbeat_task = application.bot_data.get("watchdog_heartbeat_task")
+    if heartbeat_task and not heartbeat_task.done():
+        heartbeat_task.cancel()
+
+
 def schedule_data_backup(application: Application, reason: str = "cambio de datos") -> None:
     backup_chat_id = configured_backup_chat_id()
     layout = application.bot_data.get("telegram_backup_layout")
@@ -5338,6 +5397,7 @@ def schedule_data_backup(application: Application, reason: str = "cambio de dato
 
 async def post_init(application: Application) -> None:
     application.bot_data["event_loop"] = asyncio.get_running_loop()
+    start_watchdog(application)
     # Garantizar archivo de cookies de YouTube en disco
     try:
         from platform_downloads import get_youtube_cookies_path
@@ -5505,6 +5565,7 @@ async def post_init(application: Application) -> None:
 
 
 async def post_shutdown(application: Application) -> None:
+    stop_watchdog(application)
     pending_backup = application.bot_data.get("telegram_backup_pending_task")
     if pending_backup and not pending_backup.done():
         try:
